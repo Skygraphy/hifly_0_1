@@ -22,14 +22,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      // Erlaubt, dass ein Google-Login automatisch mit einem bestehenden
+      // User gleicher E-Mail verknüpft wird (z.B. einem per Credentials
+      // angelegten Account). Vertretbar, weil Google die E-Mail verifiziert
+      // ausliefert — anders als bei Providern ohne Verified-E-Mail-Garantie.
+      allowDangerousEmailAccountLinking: true,
     }),
     Apple({
       clientId: process.env.AUTH_APPLE_ID,
       clientSecret: process.env.AUTH_APPLE_SECRET,
+      allowDangerousEmailAccountLinking: true,
     }),
     PayPalProvider({
       clientId: process.env.AUTH_PAYPAL_ID,
       clientSecret: process.env.AUTH_PAYPAL_SECRET,
+      allowDangerousEmailAccountLinking: true,
     }),
     Credentials({
       credentials: {
