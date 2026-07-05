@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { PlaneTakeoff, CircleUserRound, ShieldCheck, LogOut } from "lucide-react";
 import { auth, signOut } from "@/auth";
 import { canAccessAdminArea } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { RoleBadge } from "@/components/role-badge";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -17,6 +18,10 @@ export default async function DashboardPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#121212] p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
+          <div className="mb-1 flex items-center gap-2 text-primary">
+            <PlaneTakeoff className="size-5" />
+            <span className="text-sm font-semibold tracking-tight">HiFly</span>
+          </div>
           <CardTitle className="text-2xl">Dashboard</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -24,12 +29,16 @@ export default async function DashboardPage() {
             Dieser Bereich ist nur für eingeloggte User sichtbar.
           </p>
           <div className="flex items-center justify-between text-sm">
-            <span>{session.user.email}</span>
-            <Badge variant="secondary">{session.user.role}</Badge>
+            <span className="flex items-center gap-1.5">
+              <CircleUserRound className="size-4 text-muted-foreground" />
+              {session.user.email}
+            </span>
+            <RoleBadge role={session.user.role} />
           </div>
 
           {canAccessAdminArea(session.user.role) && (
             <Link href="/admin" className={cn(buttonVariants({ variant: "outline" }))}>
+              <ShieldCheck className="size-4" />
               Zum Admin-Bereich
             </Link>
           )}
@@ -41,6 +50,7 @@ export default async function DashboardPage() {
             }}
           >
             <Button type="submit" variant="ghost" className="w-full">
+              <LogOut className="size-4" />
               Abmelden
             </Button>
           </form>

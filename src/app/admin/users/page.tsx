@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Users } from "lucide-react";
 import { auth } from "@/auth";
 import { canManageUsers } from "@/lib/authorization";
 import { db } from "@/db";
@@ -11,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { RoleBadge } from "@/components/role-badge";
 import { RoleActionButton } from "./RoleActionButton";
 
 export default async function AdminUsersPage() {
@@ -35,7 +36,10 @@ export default async function AdminUsersPage() {
   return (
     <main className="min-h-screen bg-[#121212] p-8">
       <div className="mx-auto max-w-3xl">
-        <h1 className="mb-6 text-2xl font-semibold">User-Rechte verwalten</h1>
+        <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold">
+          <Users className="size-6 text-primary" />
+          User-Rechte verwalten
+        </h1>
         <Table>
           <TableHeader>
             <TableRow>
@@ -51,9 +55,7 @@ export default async function AdminUsersPage() {
                 <TableCell>{user.email}</TableCell>
                 <TableCell>{user.name ?? "—"}</TableCell>
                 <TableCell>
-                  <Badge variant={user.role === "super_admin" ? "default" : "secondary"}>
-                    {user.role}
-                  </Badge>
+                  <RoleBadge role={user.role} />
                 </TableCell>
                 <TableCell className="text-right">
                   {user.role === "super_admin" || user.id === session.user.id ? (

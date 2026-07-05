@@ -12,7 +12,7 @@ export default function Home() {
         }}
       />
       <div
-        className="pointer-events-none absolute h-[420px] w-[420px] rounded-full bg-[#3ecf8e] opacity-[0.15] blur-[140px]"
+        className="pointer-events-none absolute h-[420px] w-[420px] rounded-full bg-[#FF7F50] opacity-[0.15] blur-[140px]"
         aria-hidden
       />
       <h1 className="relative text-7xl font-semibold tracking-tight text-[#edededfa] sm:text-8xl md:text-9xl">

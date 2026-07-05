@@ -1,3 +1,4 @@
+import { PlaneTakeoff, Globe, Fingerprint, Wallet } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { signInWithProvider } from "./actions";
@@ -8,6 +9,10 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#121212] p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
+          <div className="mb-1 flex items-center gap-2 text-primary">
+            <PlaneTakeoff className="size-5" />
+            <span className="text-sm font-semibold tracking-tight">HiFly</span>
+          </div>
           <CardTitle className="text-2xl">Anmelden</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
@@ -22,16 +27,19 @@ export default function LoginPage() {
           <div className="flex flex-col gap-2">
             <form action={signInWithProvider.bind(null, "google")}>
               <Button type="submit" variant="outline" className="w-full">
+                <Globe className="size-4" />
                 Mit Google anmelden
               </Button>
             </form>
             <form action={signInWithProvider.bind(null, "apple")}>
               <Button type="submit" variant="outline" className="w-full">
+                <Fingerprint className="size-4" />
                 Mit Apple anmelden
               </Button>
             </form>
             <form action={signInWithProvider.bind(null, "paypal")}>
               <Button type="submit" variant="outline" className="w-full">
+                <Wallet className="size-4" />
                 Mit PayPal anmelden
               </Button>
             </form>

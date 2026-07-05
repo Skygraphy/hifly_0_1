@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { ShieldCheck, ShieldMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setUserAdminRole } from "./actions";
 import type { Role } from "@/lib/authorization";
@@ -15,6 +16,7 @@ export function RoleActionButton({
   label: string;
 }) {
   const [isPending, startTransition] = useTransition();
+  const Icon = desiredRole === "admin" ? ShieldCheck : ShieldMinus;
 
   return (
     <Button
@@ -31,7 +33,8 @@ export function RoleActionButton({
         });
       }}
     >
-      {isPending ? "…" : label}
+      {isPending ? "…" : <Icon className="size-3.5" />}
+      {isPending ? "" : label}
     </Button>
   );
 }
