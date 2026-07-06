@@ -106,12 +106,24 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                 data-testid="account-menu-flow-walkthrough"
                 disabled={isWalkthroughPending}
                 onClick={() => {
+                  // Muss synchron im Klick-Handler geöffnet werden, sonst
+                  // blockt der Browser das window.open als Popup, weil der
+                  // Server Action-Await die User-Geste "verbraucht".
+                  const reportWindow = window.open("", "_blank");
+                  if (reportWindow) {
+                    reportWindow.document.write(
+                      "<p style=\"font-family: sans-serif; padding: 2rem;\">Walkthrough läuft…</p>"
+                    );
+                  }
                   startWalkthroughTransition(async () => {
                     const result = await runFlowWalkthroughAction();
                     if (result.success && result.reportHtml) {
                       const blob = new Blob([result.reportHtml], { type: "text/html" });
-                      window.open(URL.createObjectURL(blob), "_blank");
+                      if (reportWindow) {
+                        reportWindow.location.href = URL.createObjectURL(blob);
+                      }
                     } else {
+                      reportWindow?.close();
                       alert(result.error ?? "Walkthrough fehlgeschlagen.");
                     }
                   });
