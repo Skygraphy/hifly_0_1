@@ -61,12 +61,12 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="flex flex-col gap-1 px-1.5 py-1.5 font-normal text-foreground">
+          <DropdownMenuLabel className="flex flex-col gap-1.5 px-2.5 py-2 font-normal text-foreground">
             <span className="truncate text-sm font-medium">{displayName}</span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {user.name && <span className="truncate">{user.email}</span>}
-              <RoleBadge role={user.role} />
-            </span>
+            {user.name && (
+              <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+            )}
+            <RoleBadge role={user.role} />
           </DropdownMenuLabel>
         </DropdownMenuGroup>
 
