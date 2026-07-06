@@ -4,6 +4,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked:
     "Dieser Account ist noch nicht verknüpft. Bitte melde dich zuerst per Passwort an.",
   forbidden: "Du hast keine Berechtigung für diesen Bereich.",
+  AccountBlocked: "Dieser Account wurde gesperrt. Bitte wende dich an einen Administrator.",
 };
 
 const FALLBACK_AUTH_ERROR_MESSAGE = "Anmeldung fehlgeschlagen. Bitte versuche es erneut.";

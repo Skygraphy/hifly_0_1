@@ -57,9 +57,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .where(eq(users.email, email))
           .limit(1);
 
-        // Kein User, oder ein reiner OAuth-Account ohne Passwort: ablehnen,
-        // statt gegen einen leeren Hash zu vergleichen.
-        if (!user || !user.passwordHash) {
+        // Kein User, ein reiner OAuth-Account ohne Passwort, oder ein
+        // blockierter Account: ablehnen. Bewusst dieselbe generische
+        // Fehlermeldung wie bei falschem Passwort (kein Enumeration-Leak,
+        // welcher Fall genau zutrifft).
+        if (!user || !user.passwordHash || user.isBlocked) {
           return null;
         }
 
@@ -84,11 +86,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ user, account }) {
       if (account?.provider !== "credentials" && user.email) {
         const [existing] = await db
-          .select({ role: users.role })
+          .select({ role: users.role, isBlocked: users.isBlocked })
           .from(users)
           .where(eq(users.email, user.email))
           .limit(1);
 
+        if (existing?.isBlocked) {
+          return "/login?error=AccountBlocked";
+        }
         if (!isOAuthSignInAllowed(existing?.role)) {
           return "/login?error=SuperAdminOAuthDisabled";
         }

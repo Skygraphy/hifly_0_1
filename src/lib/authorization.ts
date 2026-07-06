@@ -59,3 +59,36 @@ export function canChangeRole(input: CanChangeRoleInput): CanChangeRoleResult {
 
   return { allowed: true };
 }
+
+export interface CanBlockUserInput {
+  actingUserId: string;
+  actingRole: Role;
+  targetUserId: string;
+  targetCurrentRole: Role;
+}
+
+export interface CanBlockUserResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * Einzige Quelle der Wahrheit für "darf X den Account von Y (ent-)blockieren"
+ * — von der Server Action genutzt, gleiche Guards wie bei canChangeRole:
+ * nur super_admin, nie sich selbst, nie den super_admin.
+ */
+export function canBlockUser(input: CanBlockUserInput): CanBlockUserResult {
+  const { actingRole, actingUserId, targetUserId, targetCurrentRole } = input;
+
+  if (actingRole !== "super_admin") {
+    return { allowed: false, reason: "Nur der super_admin darf User blockieren." };
+  }
+  if (actingUserId === targetUserId) {
+    return { allowed: false, reason: "Der super_admin kann sich nicht selbst blockieren." };
+  }
+  if (targetCurrentRole === "super_admin") {
+    return { allowed: false, reason: "Der super_admin kann nicht blockiert werden." };
+  }
+
+  return { allowed: true };
+}

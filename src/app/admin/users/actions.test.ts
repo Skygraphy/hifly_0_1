@@ -19,7 +19,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/db", () => ({ db: dbMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { setUserAdminRole } = await import("./actions");
+const { setUserAdminRole, setUserBlockedStatus } = await import("./actions");
 
 function mockTargetUser(role: "user" | "admin" | "super_admin" | null) {
   dbMock.limitMock.mockResolvedValue(role ? [{ role }] : []);
@@ -90,6 +90,87 @@ describe("setUserAdminRole", () => {
     expect(dbMock.update).toHaveBeenCalledTimes(1);
     expect(dbMock.setMock).toHaveBeenCalledWith(
       expect.objectContaining({ role: "admin" })
+    );
+  });
+});
+
+describe("setUserBlockedStatus", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist, und ändert nichts", async () => {
+    authMock.mockResolvedValue(null);
+    mockTargetUser("user");
+
+    const result = await setUserBlockedStatus("target-id", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn der Ziel-User nicht existiert", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser(null);
+
+    const result = await setUserBlockedStatus("missing-id", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn ein plain admin die Aktion aufruft", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+    mockTargetUser("user");
+
+    const result = await setUserBlockedStatus("target-id", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt Selbst-Blockierung durch den super_admin ab", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("user");
+
+    const result = await setUserBlockedStatus("super-1", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt Blockierung des super_admin ab", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("super_admin");
+
+    const result = await setUserBlockedStatus("target-id", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("erlaubt dem super_admin, einen user zu blockieren", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("user");
+
+    const result = await setUserBlockedStatus("target-id", true);
+
+    expect(result.success).toBe(true);
+    expect(dbMock.update).toHaveBeenCalledTimes(1);
+    expect(dbMock.setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ isBlocked: true })
+    );
+  });
+
+  it("erlaubt dem super_admin, einen User zu entsperren", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("user");
+
+    const result = await setUserBlockedStatus("target-id", false);
+
+    expect(result.success).toBe(true);
+    expect(dbMock.setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ isBlocked: false })
     );
   });
 });

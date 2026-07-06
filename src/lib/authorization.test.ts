@@ -3,6 +3,7 @@ import {
   canAccessAdminArea,
   canManageUsers,
   canChangeRole,
+  canBlockUser,
   isOAuthSignInAllowed,
   type Role,
 } from "./authorization";
@@ -82,6 +83,39 @@ describe("canChangeRole", () => {
 
   it("lehnt ab, wenn super_admin als gewünschte Rolle übergeben wird", () => {
     const result = canChangeRole({ ...base, desiredRole: "super_admin" });
+    expect(result.allowed).toBe(false);
+  });
+});
+
+describe("canBlockUser", () => {
+  const base = {
+    actingUserId: "super-admin-id",
+    actingRole: "super_admin" as Role,
+    targetUserId: "target-id",
+    targetCurrentRole: "user" as Role,
+  };
+
+  it("erlaubt super_admin, einen user zu blockieren", () => {
+    expect(canBlockUser(base)).toEqual({ allowed: true });
+  });
+
+  it("erlaubt super_admin, einen admin zu blockieren", () => {
+    expect(canBlockUser({ ...base, targetCurrentRole: "admin" })).toEqual({ allowed: true });
+  });
+
+  it("lehnt ab, wenn ein Nicht-super_admin handelt", () => {
+    const result = canBlockUser({ ...base, actingRole: "admin" });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBeTruthy();
+  });
+
+  it("lehnt Selbst-Blockierung ab", () => {
+    const result = canBlockUser({ ...base, targetUserId: base.actingUserId });
+    expect(result.allowed).toBe(false);
+  });
+
+  it("lehnt ab, wenn das Ziel der super_admin ist", () => {
+    const result = canBlockUser({ ...base, targetCurrentRole: "super_admin" });
     expect(result.allowed).toBe(false);
   });
 });
