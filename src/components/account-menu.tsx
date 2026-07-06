@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogIn, LogOut, ShieldCheck, Users } from "lucide-react";
+import { LogIn, LogOut, ShieldCheck, Users, Camera } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,8 +17,9 @@ import {
 import { RoleBadge } from "@/components/role-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { canAccessAdminArea, canManageUsers, type Role } from "@/lib/authorization";
+import { canAccessAdminArea, canManageUsers, canRunOpsTools, type Role } from "@/lib/authorization";
 import { signOutAction } from "./account-menu-actions";
+import { runFlowWalkthroughAction } from "./flow-report-actions";
 
 export interface AccountMenuUser {
   email?: string | null;
@@ -30,6 +31,7 @@ export interface AccountMenuUser {
 export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isWalkthroughPending, startWalkthroughTransition] = useTransition();
 
   if (!user) {
     return (
@@ -92,6 +94,32 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                   User-Rechte verwalten
                 </DropdownMenuItem>
               )}
+            </DropdownMenuGroup>
+          </>
+        )}
+
+        {canRunOpsTools(user.role) && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                data-testid="account-menu-flow-walkthrough"
+                disabled={isWalkthroughPending}
+                onClick={() => {
+                  startWalkthroughTransition(async () => {
+                    const result = await runFlowWalkthroughAction();
+                    if (result.success && result.reportHtml) {
+                      const blob = new Blob([result.reportHtml], { type: "text/html" });
+                      window.open(URL.createObjectURL(blob), "_blank");
+                    } else {
+                      alert(result.error ?? "Walkthrough fehlgeschlagen.");
+                    }
+                  });
+                }}
+              >
+                <Camera className="size-4" />
+                {isWalkthroughPending ? "Walkthrough läuft…" : "Flow-Walkthrough generieren"}
+              </DropdownMenuItem>
             </DropdownMenuGroup>
           </>
         )}

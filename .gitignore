@@ -15,6 +15,9 @@
 /playwright-report
 /test-results
 
+# generierte Flow-Walkthrough-Reports (scripts/generate-flow-screenshots.mjs)
+/flow-reports
+
 # next.js
 /.next/
 /out/

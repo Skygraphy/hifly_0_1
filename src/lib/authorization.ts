@@ -9,6 +9,16 @@ export function canManageUsers(role: Role | undefined | null): boolean {
 }
 
 /**
+ * Darf interne Ops-Tools auslösen (z.B. den Flow-Walkthrough-Screenshot-
+ * Generator). Aktuell dieselbe Schwelle wie canManageUsers, aber bewusst
+ * eine eigene Funktion — "Ops-Tools ausführen" und "User verwalten" sind
+ * unterschiedliche Berechtigungen, die zufällig denselben Wert haben.
+ */
+export function canRunOpsTools(role: Role | undefined | null): boolean {
+  return role === "super_admin";
+}
+
+/**
  * super_admin darf sich ausschließlich per Passwort anmelden, nie per OAuth.
  * Grund: allowDangerousEmailAccountLinking (in auth.ts) verknüpft OAuth-
  * Logins automatisch mit bestehenden Usern gleicher E-Mail — für den

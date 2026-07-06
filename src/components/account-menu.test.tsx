@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AccountMenu } from "./account-menu";
 
 vi.mock("./account-menu-actions", () => ({ signOutAction: vi.fn() }));
+vi.mock("./flow-report-actions", () => ({ runFlowWalkthroughAction: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 // Das Öffnen des Dropdowns selbst (Base UI Menu, Popup/Positionierung) lässt
