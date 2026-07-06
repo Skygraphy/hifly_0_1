@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { canAccessAdminArea, canManageUsers, canRunOpsTools, type Role } from "@/lib/authorization";
 import { signOutAction } from "./account-menu-actions";
 import { runFlowWalkthroughAction } from "./flow-report-actions";
+import { buildFlowWalkthroughLoadingPage } from "./flow-walkthrough-loading-page";
 
 export interface AccountMenuUser {
   email?: string | null;
@@ -44,6 +45,38 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
         <LogIn className="size-4" />
       </Link>
     );
+  }
+
+  function beginFlowWalkthrough() {
+    if (isWalkthroughPending) return;
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) {
+      alert(
+        "Das Report-Fenster wurde vom Browser blockiert. Bitte Pop-ups für diese Seite erlauben und erneut versuchen."
+      );
+      return;
+    }
+    // Direkt per Blob-URL statt document.write() navigieren: document.write
+    // auf ein frisch geöffnetes Popup rendert in manchen Browsern nicht
+    // zuverlässig, während die Blob-URL-Navigation (dasselbe Verfahren wie
+    // beim späteren Umschalten auf den fertigen Report) nachweislich
+    // funktioniert.
+    const loadingBlob = new Blob([buildFlowWalkthroughLoadingPage()], { type: "text/html" });
+    reportWindow.location.href = URL.createObjectURL(loadingBlob);
+    reportWindow.focus();
+
+    startWalkthroughTransition(async () => {
+      const result = await runFlowWalkthroughAction();
+      if (result.success && result.reportHtml) {
+        if (!reportWindow.closed) {
+          const blob = new Blob([result.reportHtml], { type: "text/html" });
+          reportWindow.location.href = URL.createObjectURL(blob);
+        }
+      } else {
+        reportWindow.close();
+        alert(result.error ?? "Walkthrough fehlgeschlagen.");
+      }
+    });
   }
 
   const displayName = user.name ?? user.email ?? "Unbekannt";
@@ -105,28 +138,22 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
               <DropdownMenuItem
                 data-testid="account-menu-flow-walkthrough"
                 disabled={isWalkthroughPending}
-                onClick={() => {
-                  // Muss synchron im Klick-Handler geöffnet werden, sonst
-                  // blockt der Browser das window.open als Popup, weil der
-                  // Server Action-Await die User-Geste "verbraucht".
-                  const reportWindow = window.open("", "_blank");
-                  if (reportWindow) {
-                    reportWindow.document.write(
-                      "<p style=\"font-family: sans-serif; padding: 2rem;\">Walkthrough läuft…</p>"
-                    );
+                // Die komplette Aktion (Fenster öffnen + Server Action
+                // starten) muss in einem einzigen, echten Pointer-/Tastatur-
+                // Event laufen. Zwei Gründe: (1) window.open braucht eine
+                // synchrone User-Aktivierung, die spätestens beim nächsten
+                // Tick verfällt — Base UI ruft onClick teils erst nach der
+                // Schließ-Animation auf, dann wird das Fenster lautlos als
+                // Popup geblockt. (2) Das geöffnete Fenster entzieht der
+                // Seite den Fokus, was Base UI als "Klick außerhalb"
+                // interpretiert und das Menü samt onClick-Callback verwirft,
+                // bevor er feuert — onPointerDown lief da schon durch.
+                onPointerDown={() => beginFlowWalkthrough()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    beginFlowWalkthrough();
                   }
-                  startWalkthroughTransition(async () => {
-                    const result = await runFlowWalkthroughAction();
-                    if (result.success && result.reportHtml) {
-                      const blob = new Blob([result.reportHtml], { type: "text/html" });
-                      if (reportWindow) {
-                        reportWindow.location.href = URL.createObjectURL(blob);
-                      }
-                    } else {
-                      reportWindow?.close();
-                      alert(result.error ?? "Walkthrough fehlgeschlagen.");
-                    }
-                  });
                 }}
               >
                 <Camera className="size-4" />

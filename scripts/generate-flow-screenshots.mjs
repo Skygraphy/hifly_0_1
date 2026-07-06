@@ -171,7 +171,7 @@ function buildReportHtml(steps, generatedAt) {
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; line-height: 1.5; }
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 56px 24px 96px; display: flex; flex-direction: column; gap: 64px; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 56px 24px 96px; display: flex; flex-direction: column; gap: 64px; }
   code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; }
   header h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); font-weight: 700; letter-spacing: -0.02em; margin: 0 0 8px; text-wrap: balance; }
   header p { color: var(--text-muted); margin: 0; max-width: 65ch; }
@@ -200,8 +200,7 @@ function buildReportHtml(steps, generatedAt) {
   .step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #1c1200; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .step-line { width: 2px; flex: 1; background: var(--border); margin-top: 6px; }
   .step:last-child .step-line { display: none; }
-  .step-card { display: grid; grid-template-columns: minmax(240px, 380px) 1fr; gap: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; align-items: start; }
-  @media (max-width: 720px) { .step-card { grid-template-columns: 1fr; } }
+  .step-card { display: flex; flex-direction: column; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   .step-card img { width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block; }
   .step-title { font-weight: 650; font-size: 1.02rem; margin: 0 0 4px; }
   .step-desc { color: var(--text-muted); margin: 0 0 10px; font-size: 0.92rem; }
