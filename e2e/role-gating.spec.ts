@@ -19,7 +19,7 @@ test.afterAll(async () => {
 test("plain user wird von /admin weggeleitet", async ({ page }) => {
   await loginWithCredentials(page, userEmail, password);
   await page.goto("/admin");
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/\?error=forbidden/);
 });
 
 test("admin darf /admin sehen, aber nicht /admin/users", async ({ page }) => {
@@ -28,7 +28,7 @@ test("admin darf /admin sehen, aber nicht /admin/users", async ({ page }) => {
   await expect(page.getByText("Admin-Bereich")).toBeVisible();
 
   await page.goto("/admin/users");
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/\?error=forbidden/);
 });
 
 test("super_admin darf /admin/users sehen", async ({ page }) => {

@@ -13,8 +13,8 @@ test.afterAll(async () => {
   await deleteFixtureUser(email);
 });
 
-test("nicht eingeloggter Zugriff auf /dashboard wird zu /login umgeleitet", async ({ page }) => {
-  await page.goto("/dashboard");
+test("nicht eingeloggter Zugriff auf /admin wird zu /login umgeleitet", async ({ page }) => {
+  await page.goto("/admin");
   await expect(page).toHaveURL(/\/login/);
 });
 
@@ -24,8 +24,10 @@ test("Login mit falschem Passwort zeigt eine Fehlermeldung", async ({ page }) =>
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("Login mit korrekten Credentials führt zum Dashboard", async ({ page }) => {
+test("Login mit korrekten Credentials führt zur Startseite", async ({ page }) => {
   await loginWithCredentials(page, email, password);
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL("http://localhost:3000/");
+
+  await page.getByTestId("account-menu-trigger").click();
   await expect(page.getByText(email)).toBeVisible();
 });

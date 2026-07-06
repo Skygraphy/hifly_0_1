@@ -14,7 +14,7 @@ export default async function globalSetup() {
   const baseURL = "http://localhost:3000";
 
   const context = await request.newContext({ baseURL });
-  for (const path of ["/login", "/dashboard", "/admin", "/admin/users"]) {
+  for (const path of ["/login", "/admin", "/admin/users"]) {
     await context.get(path).catch(() => {});
   }
   await context.dispose();

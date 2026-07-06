@@ -1,42 +1,36 @@
-import { PlaneTakeoff, Globe, Fingerprint, Wallet } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Globe, Fingerprint, Wallet } from "lucide-react";
+import { auth } from "@/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/brand-mark";
+import { AuthErrorBanner } from "@/components/auth-error-banner";
+import { getAuthErrorMessage } from "@/lib/auth-error-messages";
 import { signInWithProvider } from "./actions";
 import { CredentialsForm } from "./CredentialsForm";
-
-const OAUTH_ERROR_MESSAGES: Record<string, string> = {
-  SuperAdminOAuthDisabled:
-    "Der super_admin-Account kann sich aus Sicherheitsgründen nur per Passwort anmelden.",
-  OAuthAccountNotLinked:
-    "Dieser Account ist noch nicht verknüpft. Bitte melde dich zuerst per Passwort an.",
-};
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const session = await auth();
+  if (session?.user) {
+    redirect("/");
+  }
+
   const { error } = await searchParams;
-  const errorMessage = error
-    ? (OAUTH_ERROR_MESSAGES[error] ?? "Anmeldung fehlgeschlagen. Bitte versuche es erneut.")
-    : null;
+  const errorMessage = getAuthErrorMessage(error);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#121212] p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <div className="mb-1 flex items-center gap-2 text-primary">
-            <PlaneTakeoff className="size-5" />
-            <span className="text-sm font-semibold tracking-tight">HiFly</span>
-          </div>
+          <BrandMark />
           <CardTitle className="text-2xl">Anmelden</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          {errorMessage && (
-            <p role="alert" data-testid="oauth-error" className="text-sm text-destructive">
-              {errorMessage}
-            </p>
-          )}
+          <AuthErrorBanner message={errorMessage} />
 
           <CredentialsForm />
 

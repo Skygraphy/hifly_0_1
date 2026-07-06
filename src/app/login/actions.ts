@@ -11,7 +11,7 @@ export async function signInWithCredentials(formData: FormData) {
     await signIn("credentials", {
       email,
       password,
-      redirectTo: "/dashboard",
+      redirectTo: "/",
     });
   } catch (error) {
     // Next.js' redirect()-Mechanismus wirft intern — das darf nicht als
@@ -25,5 +25,5 @@ export async function signInWithCredentials(formData: FormData) {
 }
 
 export async function signInWithProvider(provider: "google" | "apple" | "paypal") {
-  await signIn(provider, { redirectTo: "/dashboard" });
+  await signIn(provider, { redirectTo: "/" });
 }

@@ -9,7 +9,7 @@ export async function loginWithCredentials(page: Page, email: string, password: 
   // bevor der Aufrufer weiternavigiert — sonst race't ein direkt folgendes
   // page.goto() gegen die noch laufende Server Action/Navigation.
   await Promise.race([
-    page.waitForURL(/\/dashboard/),
+    page.waitForURL((url) => url.pathname === "/"),
     page.getByTestId("login-error").waitFor({ state: "visible" }),
   ]);
 }

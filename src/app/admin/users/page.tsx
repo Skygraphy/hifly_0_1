@@ -13,14 +13,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RoleBadge } from "@/components/role-badge";
+import { BrandMark } from "@/components/brand-mark";
+import { AccountMenuSlot } from "@/components/account-menu-slot";
+import { AccountMenu } from "@/components/account-menu";
 import { RoleActionButton } from "./RoleActionButton";
 
 export default async function AdminUsersPage() {
   const session = await auth();
 
   // Unabhängig von der Middleware erneut geprüft (defense in depth).
-  if (!session?.user || !canManageUsers(session.user.role)) {
-    redirect("/dashboard");
+  if (!session?.user) {
+    redirect("/login");
+  }
+  if (!canManageUsers(session.user.role)) {
+    redirect("/?error=forbidden");
   }
 
   const allUsers = await db
@@ -34,9 +40,13 @@ export default async function AdminUsersPage() {
     .orderBy(users.email);
 
   return (
-    <main className="min-h-screen bg-[#121212] p-8">
+    <main className="relative min-h-screen bg-[#121212] p-8">
+      <AccountMenuSlot>
+        <AccountMenu user={session.user} />
+      </AccountMenuSlot>
       <div className="mx-auto max-w-3xl">
-        <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold">
+        <BrandMark />
+        <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <Users className="size-6 text-primary" />
           User-Rechte verwalten
         </h1>

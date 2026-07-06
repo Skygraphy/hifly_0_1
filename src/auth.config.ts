@@ -34,16 +34,12 @@ export const authConfig = {
 
       if (pathname.startsWith("/admin/users")) {
         if (!auth?.user) return false;
-        return canManageUsers(role) ? true : Response.redirect(new URL("/dashboard?error=forbidden", request.url));
+        return canManageUsers(role) ? true : Response.redirect(new URL("/?error=forbidden", request.url));
       }
 
       if (pathname.startsWith("/admin")) {
         if (!auth?.user) return false;
-        return canAccessAdminArea(role) ? true : Response.redirect(new URL("/dashboard?error=forbidden", request.url));
-      }
-
-      if (pathname.startsWith("/dashboard")) {
-        return !!auth?.user;
+        return canAccessAdminArea(role) ? true : Response.redirect(new URL("/?error=forbidden", request.url));
       }
 
       return true;
