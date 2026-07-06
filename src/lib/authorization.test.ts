@@ -3,6 +3,7 @@ import {
   canAccessAdminArea,
   canManageUsers,
   canChangeRole,
+  isOAuthSignInAllowed,
   type Role,
 } from "./authorization";
 
@@ -26,6 +27,18 @@ describe("canManageUsers", () => {
     [undefined, false],
   ])("role=%s -> %s", (role, expected) => {
     expect(canManageUsers(role)).toBe(expected);
+  });
+});
+
+describe("isOAuthSignInAllowed", () => {
+  it.each<[Role | undefined | null, boolean]>([
+    ["user", true],
+    ["admin", true],
+    ["super_admin", false],
+    [undefined, true],
+    [null, true],
+  ])("existingRole=%s -> %s", (role, expected) => {
+    expect(isOAuthSignInAllowed(role)).toBe(expected);
   });
 });
 

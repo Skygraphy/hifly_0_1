@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { users, accounts, sessions, verificationTokens } from "@/db/schema";
 import { authConfig } from "@/auth.config";
 import { PayPalProvider } from "@/lib/auth-providers/paypal";
+import { isOAuthSignInAllowed } from "@/lib/authorization";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -80,6 +81,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // authorized + session kommen aus authConfig (auch von der Middleware
     // genutzt); jwt braucht den Drizzle-Adapter-Kontext und lebt nur hier.
     ...authConfig.callbacks,
+    async signIn({ user, account }) {
+      if (account?.provider !== "credentials" && user.email) {
+        const [existing] = await db
+          .select({ role: users.role })
+          .from(users)
+          .where(eq(users.email, user.email))
+          .limit(1);
+
+        if (!isOAuthSignInAllowed(existing?.role)) {
+          return "/login?error=SuperAdminOAuthDisabled";
+        }
+      }
+      return true;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;

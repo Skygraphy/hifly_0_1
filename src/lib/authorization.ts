@@ -8,6 +8,16 @@ export function canManageUsers(role: Role | undefined | null): boolean {
   return role === "super_admin";
 }
 
+/**
+ * super_admin darf sich ausschließlich per Passwort anmelden, nie per OAuth.
+ * Grund: allowDangerousEmailAccountLinking (in auth.ts) verknüpft OAuth-
+ * Logins automatisch mit bestehenden Usern gleicher E-Mail — für den
+ * mächtigsten Account im System ist das ein zu großes Risiko.
+ */
+export function isOAuthSignInAllowed(existingRole: Role | undefined | null): boolean {
+  return existingRole !== "super_admin";
+}
+
 export interface CanChangeRoleInput {
   actingUserId: string;
   actingRole: Role;

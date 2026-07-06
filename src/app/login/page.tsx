@@ -4,7 +4,23 @@ import { Button } from "@/components/ui/button";
 import { signInWithProvider } from "./actions";
 import { CredentialsForm } from "./CredentialsForm";
 
-export default function LoginPage() {
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  SuperAdminOAuthDisabled:
+    "Der super_admin-Account kann sich aus Sicherheitsgründen nur per Passwort anmelden.",
+  OAuthAccountNotLinked:
+    "Dieser Account ist noch nicht verknüpft. Bitte melde dich zuerst per Passwort an.",
+};
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+  const errorMessage = error
+    ? (OAUTH_ERROR_MESSAGES[error] ?? "Anmeldung fehlgeschlagen. Bitte versuche es erneut.")
+    : null;
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#121212] p-4">
       <Card className="w-full max-w-sm">
@@ -16,6 +32,12 @@ export default function LoginPage() {
           <CardTitle className="text-2xl">Anmelden</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
+          {errorMessage && (
+            <p role="alert" data-testid="oauth-error" className="text-sm text-destructive">
+              {errorMessage}
+            </p>
+          )}
+
           <CredentialsForm />
 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
