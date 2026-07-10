@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { Globe, Fingerprint, Wallet } from "lucide-react";
 import { auth } from "@/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/brand-mark";
+import { BackLink } from "@/components/back-link";
 import { AuthErrorBanner } from "@/components/auth-error-banner";
 import { getAuthErrorMessage } from "@/lib/auth-error-messages";
 import { signInWithProvider } from "./actions";
@@ -23,7 +25,8 @@ export default async function LoginPage({
   const errorMessage = getAuthErrorMessage(error);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#121212] p-4">
+    <main className="relative flex min-h-screen items-center justify-center bg-background p-4">
+      <BackLink href="/" label="Zurück zur Startseite" />
       <Card className="w-full max-w-sm">
         <CardHeader>
           <BrandMark />
@@ -60,6 +63,13 @@ export default async function LoginPage({
               </Button>
             </form>
           </div>
+
+          <Link
+            href="/register"
+            className="text-center text-sm text-muted-foreground hover:text-foreground"
+          >
+            Noch kein Konto? Registrieren
+          </Link>
         </CardContent>
       </Card>
     </main>
