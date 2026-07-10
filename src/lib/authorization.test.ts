@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   canAccessAdminArea,
+  canManageAppSettings,
   canManageUsers,
   canChangeRole,
   canBlockUser,
+  hasMinRole,
   isOAuthSignInAllowed,
   type Role,
 } from "./authorization";
@@ -17,6 +19,35 @@ describe("canAccessAdminArea", () => {
     [null, false],
   ])("role=%s -> %s", (role, expected) => {
     expect(canAccessAdminArea(role)).toBe(expected);
+  });
+});
+
+describe("hasMinRole", () => {
+  it.each<[Role | undefined | null, Role, boolean]>([
+    ["user", "user", true],
+    ["admin", "user", true],
+    ["super_admin", "user", true],
+    ["user", "admin", false],
+    ["admin", "admin", true],
+    ["super_admin", "admin", true],
+    ["admin", "super_admin", false],
+    ["super_admin", "super_admin", true],
+    [undefined, "user", false],
+    [null, "user", false],
+  ])("role=%s, minRole=%s -> %s", (role, minRole, expected) => {
+    expect(hasMinRole(role, minRole)).toBe(expected);
+  });
+});
+
+describe("canManageAppSettings", () => {
+  it.each<[Role | undefined | null, boolean]>([
+    ["user", false],
+    ["admin", false],
+    ["super_admin", true],
+    [undefined, false],
+    [null, false],
+  ])("role=%s -> %s", (role, expected) => {
+    expect(canManageAppSettings(role)).toBe(expected);
   });
 });
 

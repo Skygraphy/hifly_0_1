@@ -17,8 +17,11 @@ import { RoleBadge } from "@/components/role-badge";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
+import { DisplaySettingsMenu } from "@/components/display-settings-menu";
+import { BackLink } from "@/components/back-link";
 import { RoleActionButton } from "./RoleActionButton";
 import { BlockActionButton } from "./BlockActionButton";
+import { DeleteActionButton } from "./DeleteActionButton";
 
 export default async function AdminUsersPage() {
   const session = await auth();
@@ -43,12 +46,22 @@ export default async function AdminUsersPage() {
     .orderBy(users.email);
 
   return (
-    <main className="relative min-h-screen bg-[#121212] p-8">
+    <main className="relative min-h-screen bg-background p-8">
+      <BackLink href="/admin" label="Zurück zum Admin-Bereich" />
       <AccountMenuSlot>
-        <AccountMenu user={session.user} />
+        <div className="flex items-center gap-2">
+          <DisplaySettingsMenu user={session.user} />
+          <AccountMenu user={session.user} />
+        </div>
       </AccountMenuSlot>
-      <div className="mx-auto max-w-4xl">
-        <BrandMark />
+      <div className="mx-auto max-w-6xl">
+        {/* mt-6 statt pl-12: der Back-Button (absolut, oben links, size-8)
+            überlappt sonst das Logo, wenn beide auf derselben Höhe stehen.
+            Vertikaler statt horizontaler Abstand hält BrandMark, Überschrift
+            und Tabelle alle linksbündig. */}
+        <div className="mt-6">
+          <BrandMark />
+        </div>
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <Users className="size-6 text-primary" />
           User-Rechte verwalten
@@ -92,6 +105,7 @@ export default async function AdminUsersPage() {
                             <RoleActionButton userId={user.id} desiredRole="admin" label="zu admin machen" />
                           )}
                           <BlockActionButton userId={user.id} blocked={user.isBlocked} />
+                          <DeleteActionButton userId={user.id} email={user.email} />
                         </div>
                       )}
                     </TableCell>

@@ -9,9 +9,12 @@ const { authMock, dbMock } = vi.hoisted(() => {
   const setMock = vi.fn(() => ({ where: updateWhereMock }));
   const updateMock = vi.fn(() => ({ set: setMock }));
 
+  const deleteWhereMock = vi.fn();
+  const deleteMock = vi.fn(() => ({ where: deleteWhereMock }));
+
   return {
     authMock: vi.fn(),
-    dbMock: { select: selectMock, update: updateMock, limitMock, setMock },
+    dbMock: { select: selectMock, update: updateMock, delete: deleteMock, limitMock, setMock, deleteWhereMock },
   };
 });
 
@@ -19,7 +22,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/db", () => ({ db: dbMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { setUserAdminRole, setUserBlockedStatus } = await import("./actions");
+const { setUserAdminRole, setUserBlockedStatus, deleteUser } = await import("./actions");
 
 function mockTargetUser(role: "user" | "admin" | "super_admin" | null) {
   dbMock.limitMock.mockResolvedValue(role ? [{ role }] : []);
@@ -172,5 +175,82 @@ describe("setUserBlockedStatus", () => {
     expect(dbMock.setMock).toHaveBeenCalledWith(
       expect.objectContaining({ isBlocked: false })
     );
+  });
+});
+
+describe("deleteUser", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist, und löscht nichts", async () => {
+    authMock.mockResolvedValue(null);
+    mockTargetUser("user");
+
+    const result = await deleteUser("target-id");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn der Ziel-User nicht existiert", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser(null);
+
+    const result = await deleteUser("missing-id");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn ein plain admin die Aktion aufruft", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+    mockTargetUser("user");
+
+    const result = await deleteUser("target-id");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("lehnt Selbst-Löschung durch den super_admin ab", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("user");
+
+    const result = await deleteUser("super-1");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("lehnt Löschung des super_admin ab", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("super_admin");
+
+    const result = await deleteUser("target-id");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("erlaubt dem super_admin, einen user zu löschen", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("user");
+
+    const result = await deleteUser("target-id");
+
+    expect(result.success).toBe(true);
+    expect(dbMock.delete).toHaveBeenCalledTimes(1);
+    expect(dbMock.deleteWhereMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("erlaubt dem super_admin, einen admin zu löschen", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    mockTargetUser("admin");
+
+    const result = await deleteUser("target-id");
+
+    expect(result.success).toBe(true);
+    expect(dbMock.delete).toHaveBeenCalledTimes(1);
   });
 });
