@@ -1,14 +1,16 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Users } from "lucide-react";
+import { ShieldCheck, Users, Settings } from "lucide-react";
 import { auth } from "@/auth";
-import { canAccessAdminArea, canManageUsers } from "@/lib/authorization";
+import { canAccessAdminArea, canManageAppSettings, canManageUsers } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { RoleBadge } from "@/components/role-badge";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
+import { DisplaySettingsMenu } from "@/components/display-settings-menu";
+import { BackLink } from "@/components/back-link";
 import { cn } from "@/lib/utils";
 
 export default async function AdminPage() {
@@ -23,9 +25,13 @@ export default async function AdminPage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-[#121212]">
+    <main className="relative min-h-screen bg-background">
+      <BackLink href="/" label="Zurück zur Startseite" />
       <AccountMenuSlot>
-        <AccountMenu user={session.user} />
+        <div className="flex items-center gap-2">
+          <DisplaySettingsMenu user={session.user} />
+          <AccountMenu user={session.user} />
+        </div>
       </AccountMenuSlot>
       <div className="flex min-h-screen items-center justify-center p-4">
         <Card className="w-full max-w-sm">
@@ -49,6 +55,15 @@ export default async function AdminPage() {
               >
                 <Users className="size-4" />
                 User-Rechte verwalten
+              </Link>
+            )}
+            {canManageAppSettings(session.user.role) && (
+              <Link
+                href="/admin/settings"
+                className={cn(buttonVariants({ variant: "outline" }))}
+              >
+                <Settings className="size-4" />
+                App-Einstellungen
               </Link>
             )}
           </CardContent>

@@ -5,6 +5,7 @@ import {
   timestamp,
   integer,
   boolean,
+  jsonb,
   primaryKey,
   uniqueIndex,
   uuid,
@@ -75,3 +76,28 @@ export const verificationTokens = pgTable(
   },
   (table) => [primaryKey({ columns: [table.identifier, table.token] })]
 );
+
+// Konto-gebundene Settings (Tier "Konto"): ein User setzt Werte für sich
+// selbst, welche Keys sichtbar sind hängt von der Rolle ab (siehe
+// src/lib/settings-registry.ts). JSONB statt Spalte pro Einstellung, damit
+// neue Settings ohne Migration ergänzt werden können.
+export const userSettings = pgTable(
+  "user_settings",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: jsonb("value").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })]
+);
+
+// Rein globale Settings (Tier "App"): nur der super_admin darf schreiben,
+// wirken sitezweit auch für anonyme Besucher (z.B. Wartungsmodus).
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import { canAccessAdminArea, canManageUsers } from "@/lib/authorization";
+import { canAccessAdminArea, canManageUsers, canManageAppSettings } from "@/lib/authorization";
 
 /**
  * Edge-sicherer Teil der Auth.js-Konfiguration: kein `pg`/Drizzle-Adapter
@@ -37,9 +37,18 @@ export const authConfig = {
         return canManageUsers(role) ? true : Response.redirect(new URL("/?error=forbidden", request.url));
       }
 
+      if (pathname.startsWith("/admin/settings")) {
+        if (!auth?.user) return false;
+        return canManageAppSettings(role) ? true : Response.redirect(new URL("/?error=forbidden", request.url));
+      }
+
       if (pathname.startsWith("/admin")) {
         if (!auth?.user) return false;
         return canAccessAdminArea(role) ? true : Response.redirect(new URL("/?error=forbidden", request.url));
+      }
+
+      if (pathname.startsWith("/settings")) {
+        return !!auth?.user;
       }
 
       return true;

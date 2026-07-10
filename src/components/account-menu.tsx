@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogIn, LogOut, ShieldCheck, Users, Camera } from "lucide-react";
+import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,7 +17,13 @@ import {
 import { RoleBadge } from "@/components/role-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { canAccessAdminArea, canManageUsers, canRunOpsTools, type Role } from "@/lib/authorization";
+import {
+  canAccessAdminArea,
+  canManageAppSettings,
+  canManageUsers,
+  canRunOpsTools,
+  type Role,
+} from "@/lib/authorization";
 import { signOutAction } from "./account-menu-actions";
 import { runFlowWalkthroughAction } from "./flow-report-actions";
 import { buildFlowWalkthroughLoadingPage } from "./flow-walkthrough-loading-page";
@@ -105,7 +111,25 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
 
-        {(canAccessAdminArea(user.role) || canManageUsers(user.role)) && (
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            data-testid="account-menu-home-link"
+            onClick={() => router.push("/")}
+          >
+            <Home className="size-4" />
+            Startseite
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="account-menu-settings-link"
+            onClick={() => router.push("/settings")}
+          >
+            <Settings className="size-4" />
+            Konto-Einstellungen
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+
+        {(canAccessAdminArea(user.role) || canManageUsers(user.role) || canManageAppSettings(user.role)) && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -120,11 +144,22 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
               )}
               {canManageUsers(user.role) && (
                 <DropdownMenuItem
+                  inset
                   data-testid="account-menu-users-link"
                   onClick={() => router.push("/admin/users")}
                 >
                   <Users className="size-4" />
                   User-Rechte verwalten
+                </DropdownMenuItem>
+              )}
+              {canManageAppSettings(user.role) && (
+                <DropdownMenuItem
+                  inset
+                  data-testid="account-menu-app-settings-link"
+                  onClick={() => router.push("/admin/settings")}
+                >
+                  <Settings className="size-4" />
+                  App-Einstellungen
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>
