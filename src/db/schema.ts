@@ -9,6 +9,7 @@ import {
   primaryKey,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -101,3 +102,34 @@ export const appSettings = pgTable("app_settings", {
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const administrativeLevelEnum = pgEnum("administrative_level", [
+  "federal",
+  "state",
+  "district",
+  "municipality",
+  "cadastral_municipality",
+  "area",
+]);
+
+// Verwaltungsgliederung Österreichs (Bund -> Bundesland -> Bezirk -> Gemeinde
+// -> Katastralgemeinde -> Gebiet), self-referencing über parent_id. code ist
+// nur innerhalb seines Elternknotens eindeutig (nicht global) — Gebiets-
+// Buchstaben wie "A" wiederholen sich potenziell unter anderen Gemeinden.
+export const administrativeUnits = pgTable(
+  "administrative_units",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => administrativeUnits.id, {
+      onDelete: "cascade",
+    }),
+    level: administrativeLevelEnum("level").notNull(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    shortName: text("short_name"),
+    color: text("color"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("administrative_units_parent_code_idx").on(table.parentId, table.code)]
+);
