@@ -5,15 +5,38 @@ const { dbMock, state } = vi.hoisted(() => {
     userRows: [] as Array<{ key: string; value: unknown }>,
     globalRows: [] as Array<{ key: string; value: unknown }>,
   };
-  const whereMock = vi.fn(() => Promise.resolve(state.userRows));
-  const fromMock = vi.fn(() => Object.assign(Promise.resolve(state.globalRows), { where: whereMock }));
-  const selectMock = vi.fn(() => ({ from: fromMock }));
-  return { dbMock: { select: selectMock }, state };
+  const dbMock = { select: vi.fn() };
+  return { dbMock, state };
 });
 
 vi.mock("@/db", () => ({ db: dbMock }));
 
-const { getPersonalSettings, getGlobalSettings } = await import("./settings-service");
+const { userSettings, appSettings } = await import("@/db/schema");
+
+// Muss zwischen zwei Tabellen unterscheiden: userSettings-Abfragen
+// (getPersonalSettings) laufen immer über .where() und liefern userRows,
+// appSettings-Abfragen laufen entweder direkt (getGlobalSettings, liefert
+// alle globalRows) oder gefiltert über .where() (getPersonalSettingPermissions,
+// liefert nur die personal_setting_permissions-Zeile).
+dbMock.select = vi.fn(() => ({
+  from: vi.fn((table: unknown) => {
+    if (table === userSettings) {
+      return { where: vi.fn(() => Promise.resolve(state.userRows)) };
+    }
+    if (table === appSettings) {
+      return Object.assign(Promise.resolve(state.globalRows), {
+        where: vi.fn(() =>
+          Promise.resolve(state.globalRows.filter((row) => row.key === "personal_setting_permissions"))
+        ),
+      });
+    }
+    throw new Error("Unbekannte Tabelle im Mock");
+  }),
+}));
+
+const { getPersonalSettings, getGlobalSettings, getPersonalSettingPermissions } = await import(
+  "./settings-service"
+);
 
 describe("getPersonalSettings", () => {
   beforeEach(() => {
@@ -42,6 +65,12 @@ describe("getPersonalSettings", () => {
     const result = await getPersonalSettings("user-1", "user");
     expect(result).not.toHaveProperty("show_debug_info");
   });
+
+  it("zeigt show_debug_info für user, wenn die Berechtigungs-Override das erlaubt", async () => {
+    state.globalRows = [{ key: "personal_setting_permissions", value: { show_debug_info: "user" } }];
+    const result = await getPersonalSettings("user-1", "user");
+    expect(result).toHaveProperty("show_debug_info", false);
+  });
 });
 
 describe("getGlobalSettings", () => {
@@ -59,5 +88,29 @@ describe("getGlobalSettings", () => {
     state.globalRows = [{ key: "maintenance_mode", value: true }];
     const result = await getGlobalSettings();
     expect(result.maintenance_mode).toBe(true);
+  });
+});
+
+describe("getPersonalSettingPermissions", () => {
+  beforeEach(() => {
+    state.userRows = [];
+    state.globalRows = [];
+  });
+
+  it("liefert die Registry-Defaults, wenn keine Overrides existieren", async () => {
+    const result = await getPersonalSettingPermissions();
+    expect(result).toEqual({ theme: "user", show_debug_info: "admin" });
+  });
+
+  it("überschreibt einzelne Keys mit den gespeicherten Overrides", async () => {
+    state.globalRows = [{ key: "personal_setting_permissions", value: { show_debug_info: "user" } }];
+    const result = await getPersonalSettingPermissions();
+    expect(result).toEqual({ theme: "user", show_debug_info: "user" });
+  });
+
+  it("ignoriert ungültige Rollen-Werte in den Overrides", async () => {
+    state.globalRows = [{ key: "personal_setting_permissions", value: { theme: "not-a-role" } }];
+    const result = await getPersonalSettingPermissions();
+    expect(result.theme).toBe("user");
   });
 });

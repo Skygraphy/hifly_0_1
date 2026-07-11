@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { Settings } from "lucide-react";
+import { Settings, ShieldCheck } from "lucide-react";
 import { auth } from "@/auth";
 import { canManageAppSettings } from "@/lib/authorization";
-import { getGlobalSettings } from "@/lib/settings-service";
-import { GLOBAL_SETTINGS_REGISTRY } from "@/lib/settings-registry";
+import { getGlobalSettings, getPersonalSettingPermissions } from "@/lib/settings-service";
+import { GLOBAL_SETTINGS_REGISTRY, PERSONAL_SETTINGS_REGISTRY } from "@/lib/settings-registry";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
@@ -11,6 +11,7 @@ import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
 import { GlobalSettingRow } from "./global-setting-row";
+import { PersonalSettingPermissionRow } from "./personal-setting-permission-row";
 
 export default async function AdminSettingsPage() {
   const session = await auth();
@@ -24,6 +25,7 @@ export default async function AdminSettingsPage() {
   }
 
   const values = await getGlobalSettings();
+  const permissions = await getPersonalSettingPermissions();
 
   return (
     <main className="relative min-h-screen bg-background">
@@ -34,7 +36,7 @@ export default async function AdminSettingsPage() {
           <AccountMenu user={session.user} />
         </div>
       </AccountMenuSlot>
-      <div className="flex min-h-screen items-center justify-center p-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
             <BrandMark />
@@ -46,6 +48,19 @@ export default async function AdminSettingsPage() {
           <CardContent>
             {GLOBAL_SETTINGS_REGISTRY.map((def) => (
               <GlobalSettingRow key={def.key} def={def} initialValue={values[def.key]} />
+            ))}
+          </CardContent>
+        </Card>
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              <ShieldCheck className="size-6" />
+              Konto-Berechtigungen
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {PERSONAL_SETTINGS_REGISTRY.map((def) => (
+              <PersonalSettingPermissionRow key={def.key} def={def} initialMinRole={permissions[def.key]} />
             ))}
           </CardContent>
         </Card>

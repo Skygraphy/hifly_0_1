@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Settings } from "lucide-react";
 import { auth } from "@/auth";
-import { getPersonalSettings } from "@/lib/settings-service";
+import { getPersonalSettings, getPersonalSettingPermissions } from "@/lib/settings-service";
 import { PERSONAL_SETTINGS_REGISTRY } from "@/lib/settings-registry";
 import { hasMinRole } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,8 +21,9 @@ export default async function SettingsPage() {
   }
 
   const values = await getPersonalSettings(session.user.id, session.user.role);
+  const permissions = await getPersonalSettingPermissions();
   const visibleDefs = PERSONAL_SETTINGS_REGISTRY.filter((def) =>
-    hasMinRole(session.user.role, def.minRoleToView)
+    hasMinRole(session.user.role, permissions[def.key] ?? def.minRoleToView)
   );
 
   return (

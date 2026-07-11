@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { userSettings } from "@/db/schema";
 import { hasMinRole } from "@/lib/authorization";
 import { findPersonalSettingDefinition, PERSONAL_SETTINGS_REGISTRY } from "@/lib/settings-registry";
+import { getPersonalSettingPermissions } from "@/lib/settings-service";
 
 export interface SettingsActionResult {
   success: boolean;
@@ -27,7 +28,11 @@ export async function setPersonalSetting(key: string, value: unknown): Promise<S
   if (!def) {
     return { success: false, error: "Unbekannte Einstellung." };
   }
-  if (!hasMinRole(session.user.role, def.minRoleToView)) {
+  // Effektive (ggf. vom super_admin überschriebene) statt der reinen
+  // Registry-Schwelle prüfen — sonst könnte ein User eine Einstellung
+  // setzen, die ihm gerade erst entzogen wurde.
+  const permissions = await getPersonalSettingPermissions();
+  if (!hasMinRole(session.user.role, permissions[key] ?? def.minRoleToView)) {
     return { success: false, error: "Für deine Rolle nicht verfügbar." };
   }
 
@@ -65,10 +70,11 @@ export async function syncGuestSettingsOnLogin(
     return { success: false, error: "Nicht angemeldet." };
   }
 
+  const permissions = await getPersonalSettingPermissions();
   for (const def of PERSONAL_SETTINGS_REGISTRY) {
     if (!def.guestAvailable) continue;
     if (!(def.key in values)) continue;
-    if (!hasMinRole(session.user.role, def.minRoleToView)) continue;
+    if (!hasMinRole(session.user.role, permissions[def.key] ?? def.minRoleToView)) continue;
 
     const [existing] = await db
       .select()
