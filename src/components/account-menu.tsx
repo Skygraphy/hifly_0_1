@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home } from "lucide-react";
+import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home, MapPinned } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   canAccessAdminArea,
+  canManageAdministrativeUnits,
   canManageAppSettings,
   canManageUsers,
   canRunOpsTools,
@@ -129,7 +130,10 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
-        {(canAccessAdminArea(user.role) || canManageUsers(user.role) || canManageAppSettings(user.role)) && (
+        {(canAccessAdminArea(user.role) ||
+          canManageUsers(user.role) ||
+          canManageAppSettings(user.role) ||
+          canManageAdministrativeUnits(user.role)) && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -160,6 +164,16 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                 >
                   <Settings className="size-4" />
                   App-Einstellungen
+                </DropdownMenuItem>
+              )}
+              {canManageAdministrativeUnits(user.role) && (
+                <DropdownMenuItem
+                  inset
+                  data-testid="account-menu-administrative-units-link"
+                  onClick={() => router.push("/admin/administrative-units")}
+                >
+                  <MapPinned className="size-4" />
+                  Verwaltungsgliederung
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>

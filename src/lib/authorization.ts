@@ -33,6 +33,15 @@ export function canManageUsers(role: Role | undefined | null): boolean {
 }
 
 /**
+ * Darf die Verwaltungsgliederung (administrative_units) anlegen/ändern/
+ * löschen. Aktuell dieselbe Schwelle wie canManageUsers, aber bewusst eine
+ * eigene Funktion — andere Ressource, die zufällig denselben Wert hat.
+ */
+export function canManageAdministrativeUnits(role: Role | undefined | null): boolean {
+  return role === "super_admin";
+}
+
+/**
  * Darf interne Ops-Tools auslösen (z.B. den Flow-Walkthrough-Screenshot-
  * Generator). Aktuell dieselbe Schwelle wie canManageUsers, aber bewusst
  * eine eigene Funktion — "Ops-Tools ausführen" und "User verwalten" sind

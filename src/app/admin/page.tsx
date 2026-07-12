@@ -1,8 +1,13 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Users, Settings } from "lucide-react";
+import { ShieldCheck, Users, Settings, MapPinned } from "lucide-react";
 import { auth } from "@/auth";
-import { canAccessAdminArea, canManageAppSettings, canManageUsers } from "@/lib/authorization";
+import {
+  canAccessAdminArea,
+  canManageAdministrativeUnits,
+  canManageAppSettings,
+  canManageUsers,
+} from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { RoleBadge } from "@/components/role-badge";
@@ -64,6 +69,15 @@ export default async function AdminPage() {
               >
                 <Settings className="size-4" />
                 App-Einstellungen
+              </Link>
+            )}
+            {canManageAdministrativeUnits(session.user.role) && (
+              <Link
+                href="/admin/administrative-units"
+                className={cn(buttonVariants({ variant: "outline" }))}
+              >
+                <MapPinned className="size-4" />
+                Verwaltungsgliederung
               </Link>
             )}
           </CardContent>
