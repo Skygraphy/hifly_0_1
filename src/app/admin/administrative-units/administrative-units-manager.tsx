@@ -4,21 +4,19 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Columns3, Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ADMINISTRATIVE_LEVELS, getChildLevel, type AdministrativeLevel } from "@/lib/administrative-units";
-import { BreadcrumbView } from "./breadcrumb-view";
-import { ColumnsView } from "./columns-view";
+import {
+  ADMINISTRATIVE_LEVELS,
+  getChildLevel,
+  groupByParent,
+  type AdministrativeLevel,
+  type AdministrativeUnit,
+} from "@/lib/administrative-units";
+import { groupRegionsByHome, type Region, type RegionAdministrativeUnitLink } from "@/lib/regions";
+import { AdministrativeUnitBreadcrumbView } from "@/components/administrative-unit-breadcrumb-view";
+import { AdministrativeUnitColumnsView } from "@/components/administrative-unit-columns-view";
 import { AdministrativeUnitFormDialog, DeleteUnitDialog } from "./unit-dialogs";
-import type { AdministrativeUnit, FormState } from "./types";
-
-function groupByParent(units: AdministrativeUnit[]): Map<string | null, AdministrativeUnit[]> {
-  const map = new Map<string | null, AdministrativeUnit[]>();
-  for (const unit of units) {
-    const siblings = map.get(unit.parentId) ?? [];
-    siblings.push(unit);
-    map.set(unit.parentId, siblings);
-  }
-  return map;
-}
+import { RegionFormDialog, DeleteRegionDialog, CreateColumnRegionDialog } from "./region-dialogs";
+import type { FormState, ColumnRegionsTarget, EditRegionTarget } from "./types";
 
 function firstLeafPath(startUnit: AdministrativeUnit, byParent: Map<string | null, AdministrativeUnit[]>): string[] {
   const path: string[] = [];
@@ -33,10 +31,36 @@ function firstLeafPath(startUnit: AdministrativeUnit, byParent: Map<string | nul
 
 type ViewMode = "breadcrumb" | "columns";
 
-export function AdministrativeUnitsManager({ units }: { units: AdministrativeUnit[] }) {
+export function AdministrativeUnitsManager({
+  units,
+  regions,
+  regionLinks,
+}: {
+  units: AdministrativeUnit[];
+  regions: Region[];
+  regionLinks: RegionAdministrativeUnitLink[];
+}) {
   const router = useRouter();
   const byParent = useMemo(() => groupByParent(units), [units]);
   const byId = useMemo(() => new Map(units.map((unit) => [unit.id, unit])), [units]);
+  // Admin-Ansicht: Regionen werden nach ihrer fest gespeicherten
+  // homeParentId gruppiert (nicht wie öffentlich per LCA über tatsächliche
+  // Verknüpfungen) — jede Region bleibt dadurch dauerhaft an genau einer
+  // Stelle sichtbar, auch ohne aktuelle Verknüpfung (dort grau markiert).
+  const regionsByHomeParentId = useMemo(() => groupRegionsByHome(regions), [regions]);
+  // Für die Vorbelegung der Checkboxen in RegionFormDialog: pro Region
+  // die Menge ihrer verknüpften Einheiten-IDs (unabhängig davon, wo sie im
+  // Baum liegen — der Dialog schneidet das selbst auf seine
+  // candidateUnits zu).
+  const unitIdsByRegion = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const link of regionLinks) {
+      const set = map.get(link.regionId) ?? new Set<string>();
+      set.add(link.administrativeUnitId);
+      map.set(link.regionId, set);
+    }
+    return map;
+  }, [regionLinks]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("breadcrumb");
   const [path, setPath] = useState<string[]>(() => {
@@ -45,6 +69,9 @@ export function AdministrativeUnitsManager({ units }: { units: AdministrativeUni
   });
   const [formState, setFormState] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdministrativeUnit | null>(null);
+  const [editRegionTarget, setEditRegionTarget] = useState<EditRegionTarget | null>(null);
+  const [deleteRegionTarget, setDeleteRegionTarget] = useState<Region | null>(null);
+  const [columnRegionsTarget, setColumnRegionsTarget] = useState<ColumnRegionsTarget | null>(null);
 
   const pathUnits = path.map((id) => byId.get(id)).filter((unit): unit is AdministrativeUnit => Boolean(unit));
   const deepest = pathUnits[pathUnits.length - 1];
@@ -69,6 +96,14 @@ export function AdministrativeUnitsManager({ units }: { units: AdministrativeUni
 
   function openCreateForm(parentId: string | null, level: AdministrativeLevel, replaceIndex: number) {
     setFormState({ mode: "create", parentId, level, replaceIndex });
+  }
+
+  function openColumnRegions(
+    parentId: string | null,
+    level: AdministrativeLevel,
+    candidateUnits: AdministrativeUnit[]
+  ) {
+    setColumnRegionsTarget({ parentId, candidateUnits, level });
   }
 
   function countDescendants(unitId: string): number {
@@ -123,7 +158,7 @@ export function AdministrativeUnitsManager({ units }: { units: AdministrativeUni
       </div>
 
       {viewMode === "breadcrumb" ? (
-        <BreadcrumbView
+        <AdministrativeUnitBreadcrumbView
           pathUnits={pathUnits}
           byParent={byParent}
           nextChildLevel={nextChildLevel}
@@ -133,15 +168,23 @@ export function AdministrativeUnitsManager({ units }: { units: AdministrativeUni
           onEdit={(unit) => setFormState({ mode: "edit", unit })}
           onDelete={(unit) => setDeleteTarget(unit)}
           onAddChild={openCreateForm}
+          regionsByParentId={regionsByHomeParentId}
+          onCreateRegion={openColumnRegions}
         />
       ) : (
-        <ColumnsView
+        <AdministrativeUnitColumnsView
           pathUnits={pathUnits}
           byParent={byParent}
           onSelect={handleColumnsSelect}
           onCreateSibling={openCreateForm}
           onEdit={(unit) => setFormState({ mode: "edit", unit })}
           onDelete={(unit) => setDeleteTarget(unit)}
+          regionsByParentId={regionsByHomeParentId}
+          onEditRegion={(region, parentId, candidateUnits, level) =>
+            setEditRegionTarget({ region, parentId, candidateUnits, level })
+          }
+          onDeleteRegion={(region) => setDeleteRegionTarget(region)}
+          onCreateRegion={openColumnRegions}
         />
       )}
 
@@ -150,6 +193,42 @@ export function AdministrativeUnitsManager({ units }: { units: AdministrativeUni
           formState={formState}
           onClose={() => setFormState(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {editRegionTarget && (
+        <RegionFormDialog
+          region={editRegionTarget.region}
+          target={editRegionTarget}
+          unitIdsByRegion={unitIdsByRegion}
+          byId={byId}
+          onClose={() => setEditRegionTarget(null)}
+          onSaved={() => {
+            router.refresh();
+            setEditRegionTarget(null);
+          }}
+        />
+      )}
+
+      {deleteRegionTarget && (
+        <DeleteRegionDialog
+          region={deleteRegionTarget}
+          onClose={() => setDeleteRegionTarget(null)}
+          onDeleted={() => {
+            router.refresh();
+            setDeleteRegionTarget(null);
+          }}
+        />
+      )}
+
+      {columnRegionsTarget && (
+        <CreateColumnRegionDialog
+          target={columnRegionsTarget}
+          onClose={() => setColumnRegionsTarget(null)}
+          onSaved={() => {
+            router.refresh();
+            setColumnRegionsTarget(null);
+          }}
         />
       )}
 

@@ -15,7 +15,11 @@ export interface SettingsActionResult {
   error?: string;
 }
 
-export async function setPersonalSetting(key: string, value: unknown): Promise<SettingsActionResult> {
+export async function setPersonalSetting(
+  key: string,
+  value: unknown,
+  options: { revalidate?: boolean } = {}
+): Promise<SettingsActionResult> {
   const session = await auth();
 
   // Unabhängig von der Seiten-Gate erneut geprüft — nie auf die
@@ -52,7 +56,16 @@ export async function setPersonalSetting(key: string, value: unknown): Promise<S
     cookieStore.set("theme", value, { path: "/", maxAge: 60 * 60 * 24 * 365 });
   }
 
-  revalidatePath("/settings");
+  // Optional abschaltbar: revalidatePath ist nur innerhalb einer echten
+  // Server Action/eines Route Handlers erlaubt, nicht während des Renderns
+  // einer Seite — z.B. wenn setPersonalSetting direkt (nicht über eine
+  // Client-Interaktion) aus einer Server Component heraus aufgerufen wird,
+  // etwa vom Deep-Link in src/app/[unitId]/page.tsx, der ohnehin sofort per
+  // redirect() auf eine andere Route wechselt und daher keine Revalidierung
+  // von /settings braucht.
+  if (options.revalidate ?? true) {
+    revalidatePath("/settings");
+  }
   return { success: true };
 }
 

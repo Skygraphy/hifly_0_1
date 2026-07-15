@@ -149,4 +149,35 @@ body {
   html {
     @apply font-sans;
   }
+
+  /*
+   * Global statt pro Scroll-Container: einzelne Stellen einzeln zu
+   * theming'en wurde zuverlässig vergessen (Checkbox-Listen in Dialogen,
+   * Dropdown-Menüs, Tabellen, sogar der Seiten-Scrollbalken selbst blieben
+   * beim nativen — im Dark Mode weißen — Browser-Scrollbalken). scrollbar-
+   * color/-width decken Firefox ab, die ::-webkit-scrollbar-Regeln
+   * Chrome/Edge/Safari. --border ist bewusst NICHT die Thumb-Farbe: im Dark
+   * Mode ist --border nur 10%-opakes Weiß (gedacht für dünne Trennlinien),
+   * als Scrollbar-Thumb dagegen praktisch unsichtbar vor dem dunklen
+   * Hintergrund — --muted-foreground hat genug Kontrast, um in beiden
+   * Themes klar als "themed" erkennbar zu sein.
+   */
+  * {
+    scrollbar-color: var(--muted-foreground) transparent;
+    scrollbar-width: thin;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--muted-foreground);
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--foreground);
+  }
 }

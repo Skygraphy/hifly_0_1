@@ -14,6 +14,14 @@ export interface PersonalSettingDefinition {
   guestAvailable: boolean;
   /** Feste Werteliste (z.B. Theme) — wird als Select statt freiem Input gerendert. */
   options?: { value: string; label: string }[];
+  /**
+   * Von der generischen /settings-Liste ausschließen — für Einstellungen,
+   * die schon voll les-/schreibbar sind, aber noch kein passendes UI haben
+   * (z.B. eine Fremdschlüssel-artige id, für die ein rohes Text-Input keine
+   * sinnvolle Zwischenlösung wäre). Betrifft nur das Rendering, nicht
+   * getPersonalSettings/setPersonalSetting.
+   */
+  hidden?: boolean;
 }
 
 export interface GlobalSettingDefinition {
@@ -56,6 +64,29 @@ export const PERSONAL_SETTINGS_REGISTRY: PersonalSettingDefinition[] = [
     defaultValue: false,
     minRoleToView: "admin",
     guestAvailable: false,
+  },
+  // Speichert den aktuell gewählten Standort — entweder eine
+  // administrative_units-Zeile ODER eine region (siehe src/lib/standort.ts:
+  // StandortRef, { type: "unit" | "region", id }, aufgelöst über
+  // parseStandortValue). Ältere, vor Einführung von Regionen gespeicherte
+  // Werte sind noch ein blanker administrative_units-id-String —
+  // parseStandortValue interpretiert das rückwärtskompatibel als
+  // { type: "unit", id }. type: "string" hier ist daher nur nominal (siehe
+  // unten) und betrifft nicht getPersonalSettings/setPersonalSetting.
+  // Bewusst hidden: true — die Auswahl hat ein eigenes Widget auf "/"
+  // (AdministrativeLevelWidget), ein rohes Text-Input in der generischen
+  // /settings-Liste wäre keine sinnvolle Zwischenlösung. "Standort" statt
+  // "Verwaltungsebene" im Label — Letzteres ist nur die interne
+  // Domain-Bezeichnung für die administrative_units-Hälfte.
+  {
+    key: "default_administrative_unit",
+    label: "Standard-Standort",
+    description: "Wird beim nächsten Besuch als Filter vorausgewählt.",
+    type: "string",
+    defaultValue: "",
+    minRoleToView: "user",
+    guestAvailable: true,
+    hidden: true,
   },
 ];
 

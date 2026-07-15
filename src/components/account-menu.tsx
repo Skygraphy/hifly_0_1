@@ -22,6 +22,7 @@ import {
   canManageAdministrativeUnits,
   canManageAppSettings,
   canManageUsers,
+  canManageRegions,
   canRunOpsTools,
   type Role,
 } from "@/lib/authorization";
@@ -133,7 +134,8 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
         {(canAccessAdminArea(user.role) ||
           canManageUsers(user.role) ||
           canManageAppSettings(user.role) ||
-          canManageAdministrativeUnits(user.role)) && (
+          canManageAdministrativeUnits(user.role) ||
+          canManageRegions(user.role)) && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -166,14 +168,14 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                   App-Einstellungen
                 </DropdownMenuItem>
               )}
-              {canManageAdministrativeUnits(user.role) && (
+              {(canManageAdministrativeUnits(user.role) || canManageRegions(user.role)) && (
                 <DropdownMenuItem
                   inset
                   data-testid="account-menu-administrative-units-link"
                   onClick={() => router.push("/admin/administrative-units")}
                 >
                   <MapPinned className="size-4" />
-                  Verwaltungsgliederung
+                  Standorte &amp; Regionen
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>

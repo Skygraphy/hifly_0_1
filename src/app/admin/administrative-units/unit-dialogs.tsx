@@ -24,7 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ADMINISTRATIVE_LEVEL_LABELS } from "@/lib/administrative-units";
 import { createAdministrativeUnit, updateAdministrativeUnit, deleteAdministrativeUnit } from "./actions";
-import type { AdministrativeUnit, FormState } from "./types";
+import type { AdministrativeUnit } from "@/lib/administrative-units";
+import type { FormState } from "./types";
 
 export function AdministrativeUnitFormDialog({
   formState,

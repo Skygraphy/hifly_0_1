@@ -22,8 +22,8 @@ export default async function SettingsPage() {
 
   const values = await getPersonalSettings(session.user.id, session.user.role);
   const permissions = await getPersonalSettingPermissions();
-  const visibleDefs = PERSONAL_SETTINGS_REGISTRY.filter((def) =>
-    hasMinRole(session.user.role, permissions[def.key] ?? def.minRoleToView)
+  const visibleDefs = PERSONAL_SETTINGS_REGISTRY.filter(
+    (def) => !def.hidden && hasMinRole(session.user.role, permissions[def.key] ?? def.minRoleToView)
   );
 
   return (

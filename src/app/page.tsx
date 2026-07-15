@@ -1,12 +1,17 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
+import { AdministrativeLevelWidget } from "@/components/administrative-level-widget";
 import { AuthErrorBanner } from "@/components/auth-error-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
+import { buttonVariants } from "@/components/ui/button";
 import { getAuthErrorMessage } from "@/lib/auth-error-messages";
 import { getGlobalSettings } from "@/lib/settings-service";
+import { getStandortPickerData } from "@/lib/standort-picker-data";
 import { canAccessAdminArea } from "@/lib/authorization";
+import { cn } from "@/lib/utils";
 
 export default async function Home({
   searchParams,
@@ -30,6 +35,11 @@ export default async function Home({
     return <MaintenanceScreen user={session?.user ?? null} />;
   }
 
+  const { units, regions, regionLinks, initialStandort } = await getStandortPickerData(
+    session?.user?.id,
+    session?.user?.role
+  );
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
       <AccountMenuSlot>
@@ -52,7 +62,7 @@ export default async function Home({
         className="pointer-events-none absolute h-[420px] w-[420px] rounded-full bg-[#FF7F50] opacity-[0.15] blur-[140px]"
         aria-hidden
       />
-      <div className="relative flex flex-col items-center gap-4">
+      <div className="relative flex flex-col items-center gap-8">
         {Boolean(maintenanceMode) && (
           <div
             data-testid="maintenance-banner"
@@ -61,9 +71,19 @@ export default async function Home({
             Wartungsmodus aktiv — einige Funktionen können eingeschränkt sein.
           </div>
         )}
-        <h1 className="text-7xl font-semibold tracking-tight text-foreground sm:text-8xl md:text-9xl">
+        <h1 className="text-8xl font-semibold tracking-tight text-foreground sm:text-9xl md:text-[10rem]">
           HiFly
         </h1>
+        <AdministrativeLevelWidget
+          units={units}
+          regions={regions}
+          regionLinks={regionLinks}
+          initialStandort={initialStandort}
+          user={session?.user ?? null}
+        />
+        <Link href="/images" data-testid="submit-selection-link" className={cn(buttonVariants({ variant: "default" }))}>
+          Auswahl übernehmen
+        </Link>
         {errorMessage && (
           <div className="absolute top-full mt-6">
             <AuthErrorBanner message={errorMessage} />

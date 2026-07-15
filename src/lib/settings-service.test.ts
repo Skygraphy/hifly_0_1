@@ -46,12 +46,16 @@ describe("getPersonalSettings", () => {
 
   it("liefert nur Registry-Standardwerte für Keys, die die Rolle sehen darf", async () => {
     const result = await getPersonalSettings("user-1", "user");
-    expect(result).toEqual({ theme: "dark" });
+    expect(result).toEqual({ theme: "dark", default_administrative_unit: "" });
   });
 
   it("zeigt show_debug_info zusätzlich für admin", async () => {
     const result = await getPersonalSettings("admin-1", "admin");
-    expect(result).toEqual({ theme: "dark", show_debug_info: false });
+    expect(result).toEqual({
+      theme: "dark",
+      show_debug_info: false,
+      default_administrative_unit: "",
+    });
   });
 
   it("überschreibt den Standardwert mit einer vorhandenen user_settings-Zeile", async () => {
@@ -99,13 +103,21 @@ describe("getPersonalSettingPermissions", () => {
 
   it("liefert die Registry-Defaults, wenn keine Overrides existieren", async () => {
     const result = await getPersonalSettingPermissions();
-    expect(result).toEqual({ theme: "user", show_debug_info: "admin" });
+    expect(result).toEqual({
+      theme: "user",
+      show_debug_info: "admin",
+      default_administrative_unit: "user",
+    });
   });
 
   it("überschreibt einzelne Keys mit den gespeicherten Overrides", async () => {
     state.globalRows = [{ key: "personal_setting_permissions", value: { show_debug_info: "user" } }];
     const result = await getPersonalSettingPermissions();
-    expect(result).toEqual({ theme: "user", show_debug_info: "user" });
+    expect(result).toEqual({
+      theme: "user",
+      show_debug_info: "user",
+      default_administrative_unit: "user",
+    });
   });
 
   it("ignoriert ungültige Rollen-Werte in den Overrides", async () => {

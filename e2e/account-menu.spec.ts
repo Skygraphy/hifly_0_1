@@ -47,3 +47,15 @@ test("super_admin kann über das Menü direkt zu /admin/users navigieren", async
   await expect(page).toHaveURL(/\/admin\/users/);
   await expect(page.getByText("User-Rechte verwalten")).toBeVisible();
 });
+
+test("super_admin kann über das Menü direkt zu /admin/administrative-units navigieren (Standorte & Regionen)", async ({
+  page,
+}) => {
+  const { email, password: superAdminPassword } = getSuperAdminCredentials();
+  await loginWithCredentials(page, email, superAdminPassword);
+  await page.getByTestId("account-menu-trigger").click();
+  await page.getByTestId("account-menu-administrative-units-link").click();
+
+  await expect(page).toHaveURL(/\/admin\/administrative-units/);
+  await expect(page.getByRole("heading", { name: "Standorte & Regionen" })).toBeVisible();
+});

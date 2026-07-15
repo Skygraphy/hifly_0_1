@@ -133,3 +133,56 @@ export const administrativeUnits = pgTable(
   },
   (table) => [uniqueIndex("administrative_units_parent_code_idx").on(table.parentId, table.code)]
 );
+
+// Benannte Regionen, die quer zur Verwaltungsgliederung liegen (z.B. "Hohe
+// Tauern" über Salzburg/Tirol/Kärnten hinweg, "Wachau" über mehrere Bezirke
+// in Niederösterreich) — bewusst NICHT in den administrative_units-Baum
+// gezwängt (dort hat jede Zeile genau einen Parent), sondern eigene Tabelle
+// + separate m:n-Verknüpfung über regionAdministrativeUnits. name ist
+// (anders als administrative_units.code) GLOBAL eindeutig — Regionen sind
+// eine kleine, kuratierte, admin-gepflegte Liste ohne Parent-Scope.
+//
+// homeParentId/homeLevel: die Spalte/Ebene, in der die Region admin-seitig
+// angelegt wurde — bleibt ab dann UNVERÄNDERLICH (kein UI zum Ändern), auch
+// wenn (vorübergehend) keine einzige Einheit verknüpft ist. Dadurch bleibt
+// die Region im Admin-Bereich immer an genau dieser einen Stelle als
+// Gegend-Zeile sichtbar (grau markiert ohne Verknüpfung) und verschwindet
+// nie unauffindbar — im Gegensatz zur öffentlichen Anzeige/Auswahl, die
+// weiterhin rein aus den tatsächlichen Verknüpfungen berechnet wird (siehe
+// groupRegionsByParent in src/lib/regions.ts) und eine Region ohne
+// Verknüpfung konsequent gar nicht zeigt. homeParentId NULL bedeutet: Bund-
+// Ebene (Geschwister von "Österreich" selbst).
+export const regions = pgTable(
+  "regions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    color: text("color"),
+    homeParentId: uuid("home_parent_id").references((): AnyPgColumn => administrativeUnits.id, {
+      onDelete: "set null",
+    }),
+    homeLevel: administrativeLevelEnum("home_level").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("regions_name_idx").on(table.name)]
+);
+
+// m:n zwischen Regionen und Verwaltungseinheiten: eine Region kann mehrere
+// Einheiten umfassen UND (im Prinzip) eine Einheit zu mehreren Regionen
+// gehören — daher eine echte Join-Tabelle statt einer FK-Spalte auf einer
+// der beiden Seiten. Composite PK wie bei userSettings, kein zusätzlicher
+// surrogate key nötig.
+export const regionAdministrativeUnits = pgTable(
+  "region_administrative_units",
+  {
+    regionId: uuid("region_id")
+      .notNull()
+      .references(() => regions.id, { onDelete: "cascade" }),
+    administrativeUnitId: uuid("administrative_unit_id")
+      .notNull()
+      .references(() => administrativeUnits.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ columns: [table.regionId, table.administrativeUnitId] })]
+);

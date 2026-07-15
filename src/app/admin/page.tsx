@@ -7,6 +7,7 @@ import {
   canManageAdministrativeUnits,
   canManageAppSettings,
   canManageUsers,
+  canManageRegions,
 } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -71,13 +72,13 @@ export default async function AdminPage() {
                 App-Einstellungen
               </Link>
             )}
-            {canManageAdministrativeUnits(session.user.role) && (
+            {(canManageAdministrativeUnits(session.user.role) || canManageRegions(session.user.role)) && (
               <Link
                 href="/admin/administrative-units"
                 className={cn(buttonVariants({ variant: "outline" }))}
               >
                 <MapPinned className="size-4" />
-                Verwaltungsgliederung
+                Standorte &amp; Regionen
               </Link>
             )}
           </CardContent>

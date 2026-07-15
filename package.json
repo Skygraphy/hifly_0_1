@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed:super-admin": "node scripts/seed-super-admin.mjs",
-    "db:seed:administrative-units": "node scripts/seed-administrative-units.mjs"
+    "db:seed:administrative-units": "node scripts/seed-administrative-units.mjs",
+    "db:seed:regions": "node scripts/seed-regions.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",

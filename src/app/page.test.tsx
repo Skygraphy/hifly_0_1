@@ -3,12 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-const { authMock, getGlobalSettingsMock } = vi.hoisted(() => ({
+const { authMock, getGlobalSettingsMock, getStandortPickerDataMock } = vi.hoisted(() => ({
   authMock: vi.fn().mockResolvedValue(null),
   getGlobalSettingsMock: vi.fn().mockResolvedValue({ maintenance_mode: false }),
+  getStandortPickerDataMock: vi
+    .fn()
+    .mockResolvedValue({ units: [], regions: [], regionLinks: [], initialStandort: null }),
 }));
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/lib/settings-service", () => ({ getGlobalSettings: getGlobalSettingsMock }));
+vi.mock("@/lib/standort-picker-data", () => ({
+  getStandortPickerData: getStandortPickerDataMock,
+}));
 
 import Home from "./page";
 
@@ -16,6 +22,11 @@ describe("Home", () => {
   it("renders the HiFly heading", async () => {
     render(await Home({ searchParams: Promise.resolve({}) }));
     expect(screen.getByRole("heading", { name: "HiFly" })).toBeInTheDocument();
+  });
+
+  it("zeigt einen Link 'Auswahl übernehmen' zu /images", async () => {
+    render(await Home({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByTestId("submit-selection-link")).toHaveAttribute("href", "/images");
   });
 
   it("zeigt keinen Wartungsbanner, wenn maintenance_mode aus ist", async () => {

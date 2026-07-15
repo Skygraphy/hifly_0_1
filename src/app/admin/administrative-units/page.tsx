@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { MapPinned } from "lucide-react";
 import { auth } from "@/auth";
-import { canManageAdministrativeUnits } from "@/lib/authorization";
+import { canManageAdministrativeUnits, canManageRegions } from "@/lib/authorization";
 import { db } from "@/db";
-import { administrativeUnits } from "@/db/schema";
+import { administrativeUnits, regions, regionAdministrativeUnits } from "@/db/schema";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
@@ -18,22 +18,46 @@ export default async function AdministrativeUnitsPage() {
   if (!session?.user) {
     redirect("/login");
   }
-  if (!canManageAdministrativeUnits(session.user.role)) {
+  // Diese Seite pflegt sowohl die Verwaltungsgliederung als auch (seit dem
+  // Umbau von /admin/regions) Regionen — wer eine der beiden Berechtigungen
+  // hat, darf die Seite öffnen; jede Server Action prüft ihre eigene
+  // Berechtigung unabhängig davon erneut (defense in depth, siehe
+  // actions.ts/region-actions.ts).
+  if (!canManageAdministrativeUnits(session.user.role) && !canManageRegions(session.user.role)) {
     redirect("/?error=forbidden");
   }
 
-  const units = await db
-    .select({
-      id: administrativeUnits.id,
-      parentId: administrativeUnits.parentId,
-      level: administrativeUnits.level,
-      code: administrativeUnits.code,
-      name: administrativeUnits.name,
-      shortName: administrativeUnits.shortName,
-      color: administrativeUnits.color,
-    })
-    .from(administrativeUnits)
-    .orderBy(administrativeUnits.name);
+  const [units, regionRows, links] = await Promise.all([
+    db
+      .select({
+        id: administrativeUnits.id,
+        parentId: administrativeUnits.parentId,
+        level: administrativeUnits.level,
+        code: administrativeUnits.code,
+        name: administrativeUnits.name,
+        shortName: administrativeUnits.shortName,
+        color: administrativeUnits.color,
+      })
+      .from(administrativeUnits)
+      .orderBy(administrativeUnits.name),
+    db
+      .select({
+        id: regions.id,
+        name: regions.name,
+        description: regions.description,
+        color: regions.color,
+        homeParentId: regions.homeParentId,
+        homeLevel: regions.homeLevel,
+      })
+      .from(regions)
+      .orderBy(regions.name),
+    db
+      .select({
+        regionId: regionAdministrativeUnits.regionId,
+        administrativeUnitId: regionAdministrativeUnits.administrativeUnitId,
+      })
+      .from(regionAdministrativeUnits),
+  ]);
 
   return (
     <main className="relative min-h-screen bg-background p-8">
@@ -52,9 +76,9 @@ export default async function AdministrativeUnitsPage() {
         </div>
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <MapPinned className="size-6 text-primary" />
-          Verwaltungsgliederung
+          Standorte &amp; Regionen
         </h1>
-        <AdministrativeUnitsManager units={units} />
+        <AdministrativeUnitsManager units={units} regions={regionRows} regionLinks={links} />
       </div>
     </main>
   );
