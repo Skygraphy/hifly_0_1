@@ -46,7 +46,7 @@ export default async function AdministrativeUnitsPage() {
         name: regions.name,
         description: regions.description,
         color: regions.color,
-        homeParentId: regions.homeParentId,
+        parentId: regions.parentId,
         homeLevel: regions.homeLevel,
       })
       .from(regions)

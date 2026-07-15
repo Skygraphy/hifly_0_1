@@ -43,6 +43,13 @@
       "when": 1784029487331,
       "tag": "0005_dapper_johnny_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784100000000,
+      "tag": "0006_petite_madame_web",
+      "breakpoints": true
     }
   ]
 }

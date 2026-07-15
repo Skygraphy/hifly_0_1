@@ -1,5 +1,5 @@
 // Löscht Regionen ohne jede Verknüpfung — laut aktueller Definition darf es
-// die nicht (mehr) geben (siehe regions.home_parent_id/home_level in
+// die nicht (mehr) geben (siehe regions.parent_id/home_level in
 // src/db/schema.ts sowie die Speichern-Validierung in region-actions.ts).
 // Kann vorkommen, wenn eine Region vor Einführung dieser Regel angelegt
 // wurde.

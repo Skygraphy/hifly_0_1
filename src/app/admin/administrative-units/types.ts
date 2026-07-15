@@ -9,9 +9,9 @@ export type FormState =
  * Ziel für CreateColumnRegionDialog/RegionFormDialog: die Geschwister-
  * Einheiten EINER Spalte/eines Segments, die als Verknüpfungs-Kandidaten
  * angeboten werden — siehe Kommentar bei setRegionUnitsWithinScope in
- * region-actions.ts. parentId ist zugleich die homeParentId, unter der eine
- * hier neu angelegte Region dauerhaft gespeichert wird (siehe
- * regions.homeParentId in src/db/schema.ts).
+ * region-actions.ts. parentId ist zugleich die regions.parentId, unter der
+ * eine hier neu angelegte Region dauerhaft gespeichert wird (siehe
+ * src/db/schema.ts).
  */
 export interface ColumnRegionsTarget {
   parentId: string | null;

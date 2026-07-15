@@ -17,13 +17,13 @@ const client = new pg.Client({
   ssl: { rejectUnauthorized: false },
 });
 
-async function upsertRegion(client, { name, description = null, color = null, homeParentId, homeLevel }) {
+async function upsertRegion(client, { name, description = null, color = null, parentId, homeLevel }) {
   const { rows } = await client.query(
-    `INSERT INTO regions (name, description, color, home_parent_id, home_level) VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO regions (name, description, color, parent_id, home_level) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (name) DO UPDATE SET
-       description = $2, color = $3, home_parent_id = $4, home_level = $5, updated_at = now()
+       description = $2, color = $3, parent_id = $4, home_level = $5, updated_at = now()
      RETURNING id`,
-    [name, description, color, homeParentId, homeLevel]
+    [name, description, color, parentId, homeLevel]
   );
   return rows[0].id;
 }
@@ -54,7 +54,7 @@ try {
   const oesterreichId = await getUnitIdByName(client, "Österreich");
   const niederoesterreichId = await getUnitIdByName(client, "Niederösterreich");
 
-  // homeParentId/homeLevel = die Spalte, in der die Region admin-seitig
+  // parentId/homeLevel = die Spalte, in der die Region admin-seitig
   // "angelegt" gedacht ist (bleibt danach unveränderlich, siehe schema.ts) —
   // die tatsächlichen Verknüpfungen unten liegen bewusst auf GENAU dieser
   // Ebene (Geschwister-Einheiten derselben Spalte), damit die Checkboxen im
@@ -65,7 +65,7 @@ try {
   const hoheTauernId = await upsertRegion(client, {
     name: "Hohe Tauern",
     description: "Gebirgsgruppe/Nationalpark über Salzburg, Tirol (Osttirol) und Kärnten hinweg.",
-    homeParentId: oesterreichId,
+    parentId: oesterreichId,
     homeLevel: "state",
   });
   const hoheTauernUnitIds = [];
@@ -77,7 +77,7 @@ try {
   const wachauId = await upsertRegion(client, {
     name: "Wachau",
     description: "Donautal/Weinbauregion über mehrere Bezirke in Niederösterreich hinweg.",
-    homeParentId: niederoesterreichId,
+    parentId: niederoesterreichId,
     homeLevel: "district",
   });
   const wachauUnitIds = [];

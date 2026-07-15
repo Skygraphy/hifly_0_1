@@ -142,16 +142,16 @@ export const administrativeUnits = pgTable(
 // (anders als administrative_units.code) GLOBAL eindeutig — Regionen sind
 // eine kleine, kuratierte, admin-gepflegte Liste ohne Parent-Scope.
 //
-// homeParentId/homeLevel: die Spalte/Ebene, in der die Region admin-seitig
-// angelegt wurde — bleibt ab dann UNVERÄNDERLICH (kein UI zum Ändern), auch
-// wenn (vorübergehend) keine einzige Einheit verknüpft ist. Dadurch bleibt
-// die Region im Admin-Bereich immer an genau dieser einen Stelle als
-// Gegend-Zeile sichtbar (grau markiert ohne Verknüpfung) und verschwindet
-// nie unauffindbar — im Gegensatz zur öffentlichen Anzeige/Auswahl, die
-// weiterhin rein aus den tatsächlichen Verknüpfungen berechnet wird (siehe
-// groupRegionsByParent in src/lib/regions.ts) und eine Region ohne
-// Verknüpfung konsequent gar nicht zeigt. homeParentId NULL bedeutet: Bund-
-// Ebene (Geschwister von "Österreich" selbst).
+// parentId/homeLevel: die Spalte/Ebene, in der die Region admin-seitig
+// angelegt wurde — bleibt ab dann UNVERÄNDERLICH (kein UI zum Ändern). Eine
+// Region ganz ohne Verknüpfung kann es nicht geben (Anlegen/Bearbeiten
+// verlangt serverseitig mindestens eine Einheit, siehe region-actions.ts) —
+// parentId/homeLevel legen nur fest, in welcher Spalte sie als Gegend-Zeile
+// dauerhaft sichtbar bleibt, unabhängig davon, mit welchen Einheiten sie
+// aktuell verknüpft ist. Im Gegensatz dazu wird die öffentliche Anzeige/
+// Auswahl weiterhin rein aus den tatsächlichen Verknüpfungen berechnet
+// (siehe groupRegionsByParent in src/lib/regions.ts). parentId NULL
+// bedeutet: Bund-Ebene (Geschwister von "Österreich" selbst).
 export const regions = pgTable(
   "regions",
   {
@@ -159,7 +159,7 @@ export const regions = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     color: text("color"),
-    homeParentId: uuid("home_parent_id").references((): AnyPgColumn => administrativeUnits.id, {
+    parentId: uuid("parent_id").references((): AnyPgColumn => administrativeUnits.id, {
       onDelete: "set null",
     }),
     homeLevel: administrativeLevelEnum("home_level").notNull(),

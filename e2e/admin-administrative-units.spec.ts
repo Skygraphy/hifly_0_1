@@ -25,6 +25,9 @@ test("super_admin kann durch die Verwaltungsgliederung navigieren und eine Katas
   const { email, password: superAdminPassword } = getSuperAdminCredentials();
   await loginWithCredentials(page, email, superAdminPassword);
   await page.goto("/admin/administrative-units");
+  // Spalten-Ansicht ist Default — für diesen Test wird bewusst die
+  // Breadcrumb-Ansicht geprüft, daher explizit umschalten.
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
 
   // Der Standardpfad beim Laden klappt automatisch bis zum ersten Blatt auf
   // (alphabetisch je Ebene) — inzwischen gibt es mehrere Bundesländer/
@@ -77,6 +80,10 @@ test("Spalten-Ansicht zeigt Geschwister gleichzeitig und erlaubt Bearbeiten/Lös
   const { email, password: superAdminPassword } = getSuperAdminCredentials();
   await loginWithCredentials(page, email, superAdminPassword);
   await page.goto("/admin/administrative-units");
+  // Navigation zunächst über die Breadcrumb-Ansicht (Spalten ist Default,
+  // aber für die Navigation hier unerheblich — beide Ansichten teilen
+  // denselben Pfad-State).
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
 
   // Explizit zum Klosterneuburg-Zweig navigieren statt den (jetzt durch
   // mehrere Bundesländer/Bezirke beeinflussten) Default-Pfad anzunehmen.
@@ -248,6 +255,7 @@ test("Neu-anlegen in der Breadcrumb-Ansicht bietet ebenfalls eine 'Region'-Optio
   const { email, password: superAdminPassword } = getSuperAdminCredentials();
   await loginWithCredentials(page, email, superAdminPassword);
   await page.goto("/admin/administrative-units");
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
 
   await page.getByTestId("unit-breadcrumb-state").click();
   await page.locator('[data-testid^="unit-option-"]', { hasText: "Salzburg" }).click();

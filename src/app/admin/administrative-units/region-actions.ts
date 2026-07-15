@@ -68,7 +68,7 @@ export async function createRegion(
           name: input.name.trim(),
           description: input.description?.trim() || null,
           color: input.color?.trim() || null,
-          homeParentId: home.parentId,
+          parentId: home.parentId,
           homeLevel: home.level,
         })
         .returning({ id: regions.id });

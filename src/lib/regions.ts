@@ -7,7 +7,7 @@ export interface Region {
   color: string | null;
   /** Die Spalte/Ebene, in der die Region admin-seitig angelegt wurde —
    * unveränderlich danach (siehe src/db/schema.ts). null = Bund-Ebene. */
-  homeParentId: string | null;
+  parentId: string | null;
   homeLevel: AdministrativeLevel;
 }
 
@@ -65,17 +65,15 @@ export function groupRegionsByParent(
 
 /**
  * Admin-Gegenstück zu groupRegionsByParent: ordnet jede Region ihrer FEST
- * gespeicherten homeParentId zu (kein LCA über tatsächliche Verknüpfungen).
+ * gespeicherten parentId zu (kein LCA über tatsächliche Verknüpfungen).
  * Zeigt eine Region dadurch immer an genau einer, unveränderlichen Stelle
- * an — auch ohne jede aktuelle Verknüpfung (dort dann grau markiert, siehe
- * administrative-units-manager.tsx) — im Gegensatz zur öffentlichen
- * Anzeige/Auswahl, die weiterhin ausschließlich Regionen mit mindestens
- * einer tatsächlichen Verknüpfung zeigt.
+ * an — im Gegensatz zur öffentlichen Anzeige/Auswahl, die weiterhin
+ * ausschließlich per LCA über die tatsächlichen Verknüpfungen berechnet.
  */
 export function groupRegionsByHome(regions: Region[]): Map<string | null, Region[]> {
   const map = new Map<string | null, Region[]>();
   for (const region of regions) {
-    map.set(region.homeParentId, [...(map.get(region.homeParentId) ?? []), region]);
+    map.set(region.parentId, [...(map.get(region.parentId) ?? []), region]);
   }
   for (const list of map.values()) {
     list.sort((a, b) => a.name.localeCompare(b.name, "de"));

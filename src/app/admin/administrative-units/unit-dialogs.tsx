@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ColorField } from "@/components/ui/color-field";
 import { ADMINISTRATIVE_LEVEL_LABELS } from "@/lib/administrative-units";
 import { createAdministrativeUnit, updateAdministrativeUnit, deleteAdministrativeUnit } from "./actions";
 import type { AdministrativeUnit } from "@/lib/administrative-units";
@@ -110,16 +111,7 @@ export function AdministrativeUnitFormDialog({
                 onChange={(event) => setShortName(event.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="unit-color">Farbe (Hex)</Label>
-              <Input
-                id="unit-color"
-                data-testid="unit-form-color"
-                placeholder="#d9603f"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-              />
-            </div>
+            <ColorField id="unit-color" data-testid="unit-form-color" value={color} onChange={setColor} />
             {error && (
               <p role="alert" data-testid="unit-form-error" className="text-sm text-destructive">
                 {error}

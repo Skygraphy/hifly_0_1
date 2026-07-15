@@ -47,7 +47,7 @@ export async function getStandortPickerData(
         name: regionsTable.name,
         description: regionsTable.description,
         color: regionsTable.color,
-        homeParentId: regionsTable.homeParentId,
+        parentId: regionsTable.parentId,
         homeLevel: regionsTable.homeLevel,
       })
       .from(regionsTable)

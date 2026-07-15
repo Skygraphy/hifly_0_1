@@ -43,10 +43,10 @@ export function AdministrativeUnitsManager({
   const router = useRouter();
   const byParent = useMemo(() => groupByParent(units), [units]);
   const byId = useMemo(() => new Map(units.map((unit) => [unit.id, unit])), [units]);
-  // Admin-Ansicht: Regionen werden nach ihrer fest gespeicherten
-  // homeParentId gruppiert (nicht wie öffentlich per LCA über tatsächliche
+  // Admin-Ansicht: Regionen werden nach ihrer fest gespeicherten parentId
+  // gruppiert (nicht wie öffentlich per LCA über tatsächliche
   // Verknüpfungen) — jede Region bleibt dadurch dauerhaft an genau einer
-  // Stelle sichtbar, auch ohne aktuelle Verknüpfung (dort grau markiert).
+  // Stelle sichtbar.
   const regionsByHomeParentId = useMemo(() => groupRegionsByHome(regions), [regions]);
   // Für die Vorbelegung der Checkboxen in RegionFormDialog: pro Region
   // die Menge ihrer verknüpften Einheiten-IDs (unabhängig davon, wo sie im
@@ -62,7 +62,7 @@ export function AdministrativeUnitsManager({
     return map;
   }, [regionLinks]);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("breadcrumb");
+  const [viewMode, setViewMode] = useState<ViewMode>("columns");
   const [path, setPath] = useState<string[]>(() => {
     const roots = groupByParent(units).get(null) ?? [];
     return roots.length > 0 ? firstLeafPath(roots[0], groupByParent(units)) : [];
@@ -135,17 +135,6 @@ export function AdministrativeUnitsManager({
       <div className="flex items-center gap-1.5">
         <Button
           type="button"
-          variant={viewMode === "breadcrumb" ? "secondary" : "ghost"}
-          size="sm"
-          data-testid="unit-view-toggle-breadcrumb"
-          aria-pressed={viewMode === "breadcrumb"}
-          onClick={() => setViewMode("breadcrumb")}
-        >
-          <Route className="size-3.5" />
-          Breadcrumb
-        </Button>
-        <Button
-          type="button"
           variant={viewMode === "columns" ? "secondary" : "ghost"}
           size="sm"
           data-testid="unit-view-toggle-columns"
@@ -154,6 +143,17 @@ export function AdministrativeUnitsManager({
         >
           <Columns3 className="size-3.5" />
           Spalten
+        </Button>
+        <Button
+          type="button"
+          variant={viewMode === "breadcrumb" ? "secondary" : "ghost"}
+          size="sm"
+          data-testid="unit-view-toggle-breadcrumb"
+          aria-pressed={viewMode === "breadcrumb"}
+          onClick={() => setViewMode("breadcrumb")}
+        >
+          <Route className="size-3.5" />
+          Breadcrumb
         </Button>
       </div>
 

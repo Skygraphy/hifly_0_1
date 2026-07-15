@@ -24,7 +24,7 @@ const wachau: Region = {
   name: "Wachau",
   description: null,
   color: null,
-  homeParentId: null,
+  parentId: null,
   homeLevel: "federal",
 };
 const regions = [wachau];

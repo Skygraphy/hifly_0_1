@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ColorField } from "@/components/ui/color-field";
 import { ADMINISTRATIVE_LEVEL_LABELS, pathToRoot, type AdministrativeUnit } from "@/lib/administrative-units";
 import { createRegion, updateRegion, deleteRegion, setRegionUnitsWithinScope } from "./region-actions";
 import type { Region } from "@/lib/regions";
@@ -150,16 +151,7 @@ export function RegionFormDialog({
                 onChange={(event) => setDescription(event.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="region-color">Farbe (Hex)</Label>
-              <Input
-                id="region-color"
-                data-testid="region-form-color"
-                placeholder="#d9603f"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-              />
-            </div>
+            <ColorField id="region-color" data-testid="region-form-color" value={color} onChange={setColor} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Verknüpfte {ADMINISTRATIVE_LEVEL_LABELS[target.level]}-Einheiten dieser Spalte</Label>
@@ -339,16 +331,12 @@ export function CreateColumnRegionDialog({
                 onChange={(event) => setDescription(event.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="column-regions-new-color">Farbe (Hex)</Label>
-              <Input
-                id="column-regions-new-color"
-                data-testid="column-regions-new-color"
-                placeholder="#d9603f"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-              />
-            </div>
+            <ColorField
+              id="column-regions-new-color"
+              data-testid="column-regions-new-color"
+              value={color}
+              onChange={setColor}
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Einheiten dieser Spalte verknüpfen</Label>
