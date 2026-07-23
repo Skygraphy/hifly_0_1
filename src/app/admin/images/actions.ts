@@ -92,38 +92,54 @@ export async function createImageRecord(input: CreateImageRecordInput): Promise<
   return { success: true };
 }
 
-export interface RunImageMatchWarning {
+/**
+ * Serverseitig für eine Datei-Zeile entschiedenes Ergebnis: welche
+ * Feldwerte geschrieben werden sollen (1:1 aus der Datei) und ob/wohin
+ * administrativeUnitId neu zugewiesen wird. Reist unverändert zurück zum
+ * Client und von dort — Zeile für Zeile — an applyImageMatchEntry, damit
+ * die teure Vorbereitung (Freigaben/Verwaltungseinheiten laden) nur EINMAL
+ * passiert, aber jede Zeile einzeln geschrieben wird (Grundlage für den
+ * Live-Fortschritt im Upload-Manager).
+ */
+export interface PreparedMatchEntry {
   id: string;
-  message: string;
+  hash: string;
+  lat: number | null;
+  lng: number | null;
+  mainLocation: string | null;
+  secondaryLocations: string[];
+  tags: string[];
+  userTags: string[];
+  webVisible: boolean | null;
+  webRanking: number | null;
+  printVisible: boolean | null;
+  printRanking: number | null;
+  newAdministrativeUnitId: string | null;
+  warning: string | null;
 }
 
-export interface RunImageMatchResult {
+export interface PrepareImageMatchResult {
   success: boolean;
   error?: string;
-  updatedCount?: number;
   /** Datei-Zeilen ohne passende images-Zeile (Bild noch nicht hochgeladen)
    * — bewusst nur als Zahl, keine Einzelauflistung (siehe Abgleich-Plan). */
   skippedCount?: number;
-  warnings?: RunImageMatchWarning[];
-  /** ids aller tatsächlich synchronisierten Zeilen — Grundlage dafür, dass
-   * der Client eine aktualisierte Datei mit do_match: false für genau diese
-   * Zeilen anbieten kann (verhindert, dass ein erneuter Lauf mit derselben
-   * Datei später in der DB gemachte Änderungen überschreibt). */
-  updatedIds?: string[];
+  plan?: PreparedMatchEntry[];
 }
 
 /**
- * "Abgleich durchführen" auf der Upload-Seite: die Datei-Zeile ist für JEDES
- * Feld die Wahrheit (auch ein leerer Wert überschreibt einen vorhandenen
- * DB-Wert) — aber NUR für bereits vorhandene images-Zeilen. Legt NIE eine
- * neue Zeile an, löscht NIE eine Zeile. area verfeinert den Standort: passt
- * area auf den code eines DIREKTEN Kindes der aktuell zugewiesenen
- * administrativeUnitId UND hat der admin dafür eine Freigabe, wird
- * administrativeUnitId auf dieses Kind umgestellt — sonst bleibt der
+ * Erster Schritt von "Abgleich durchführen": Auth-Check, do_match-Filter,
+ * lädt die betroffenen images-Zeilen sowie (einmalig) Freigaben und
+ * Verwaltungseinheiten und entscheidet PRO ZEILE, welche Werte geschrieben
+ * werden sollen — schreibt selbst aber noch NICHTS in die DB (siehe
+ * applyImageMatchEntry für den zweiten Schritt). area verfeinert den
+ * Standort: passt area auf den code eines DIREKTEN Kindes der aktuell
+ * zugewiesenen administrativeUnitId UND hat der admin dafür eine Freigabe,
+ * wird administrativeUnitId auf dieses Kind umgestellt — sonst bleibt der
  * Standort unverändert und es gibt eine Warnung. regionId wird nie
  * verändert (Regionen folgen später).
  */
-export async function runImageMatch(entries: MatchFileEntry[]): Promise<RunImageMatchResult> {
+export async function prepareImageMatch(entries: MatchFileEntry[]): Promise<PrepareImageMatchResult> {
   const session = await auth();
 
   // Unabhängig von der Seiten-Gate erneut geprüft — nie auf die
@@ -137,7 +153,7 @@ export async function runImageMatch(entries: MatchFileEntry[]): Promise<RunImage
 
   const relevant = entries.filter((entry) => entry.do_match === true);
   if (relevant.length === 0) {
-    return { success: true, updatedCount: 0, skippedCount: 0, warnings: [], updatedIds: [] };
+    return { success: true, skippedCount: 0, plan: [] };
   }
 
   const existingRows = await db
@@ -162,7 +178,7 @@ export async function runImageMatch(entries: MatchFileEntry[]): Promise<RunImage
   const matched = relevant.filter((entry) => existingById.has(entry.id));
   const skippedCount = relevant.length - matched.length;
   if (matched.length === 0) {
-    return { success: true, updatedCount: 0, skippedCount, warnings: [], updatedIds: [] };
+    return { success: true, skippedCount, plan: [] };
   }
 
   // Freigaben live aus der DB nachgeladen (wie in createImageRecord) —
@@ -203,78 +219,104 @@ export async function runImageMatch(entries: MatchFileEntry[]): Promise<RunImage
     units.map((unit) => [unit.id, unit])
   );
 
-  const warnings: RunImageMatchWarning[] = [];
+  const plan: PreparedMatchEntry[] = matched.map((entry) => {
+    const existing = existingById.get(entry.id)!;
+    let newAdministrativeUnitId: string | null = null;
+    let warning: string | null = null;
 
-  await db.transaction(async (tx) => {
-    for (const entry of matched) {
-      const existing = existingById.get(entry.id)!;
-      let newAdministrativeUnitId: string | null = null;
-
-      if (existing.regionId) {
-        warnings.push({
-          id: entry.id,
-          message: "Zugewiesener Standort ist eine Region — area-Zuordnung wird aktuell nicht unterstützt.",
+    if (existing.regionId) {
+      warning = "Zugewiesener Standort ist eine Region — area-Zuordnung wird aktuell nicht unterstützt.";
+    } else if (!existing.administrativeUnitId) {
+      warning = "Zeile hat noch keinen zugewiesenen Standort.";
+    } else if (!entry.area) {
+      warning = "area fehlt in der Datei.";
+    } else if (unitById.get(existing.administrativeUnitId)?.code !== entry.area) {
+      // Nur suchen/warnen, wenn die aktuell zugewiesene Einheit nicht
+      // bereits selbst zu area passt — sonst hat ein früherer Abgleich
+      // das schon erledigt und ein erneuter Lauf (z.B. nur wegen anderer
+      // geänderter Felder) soll das nicht fälschlich als Fehler zeigen.
+      const child = childByParentAndCode.get(`${existing.administrativeUnitId}::${entry.area}`);
+      if (!child) {
+        warning = `area "${entry.area}" existiert nicht als Unterebene des zugewiesenen Standorts.`;
+      } else {
+        const check = canAssignImageLocation({
+          actingRole: session.user.role,
+          standort: { type: "unit", id: child.id },
+          grantedUnitIds,
+          grantedRegionIds,
         });
-      } else if (!existing.administrativeUnitId) {
-        warnings.push({ id: entry.id, message: "Zeile hat noch keinen zugewiesenen Standort." });
-      } else if (!entry.area) {
-        warnings.push({ id: entry.id, message: "area fehlt in der Datei." });
-      } else if (unitById.get(existing.administrativeUnitId)?.code !== entry.area) {
-        // Nur suchen/warnen, wenn die aktuell zugewiesene Einheit nicht
-        // bereits selbst zu area passt — sonst hat ein früherer Abgleich
-        // das schon erledigt und ein erneuter Lauf (z.B. nur wegen anderer
-        // geänderter Felder) soll das nicht fälschlich als Fehler zeigen.
-        const child = childByParentAndCode.get(`${existing.administrativeUnitId}::${entry.area}`);
-        if (!child) {
-          warnings.push({
-            id: entry.id,
-            message: `area "${entry.area}" existiert nicht als Unterebene des zugewiesenen Standorts.`,
-          });
+        if (!check.allowed) {
+          warning = `Keine Berechtigung für area "${entry.area}" (${child.name}).`;
         } else {
-          const check = canAssignImageLocation({
-            actingRole: session.user.role,
-            standort: { type: "unit", id: child.id },
-            grantedUnitIds,
-            grantedRegionIds,
-          });
-          if (!check.allowed) {
-            warnings.push({
-              id: entry.id,
-              message: `Keine Berechtigung für area "${entry.area}" (${child.name}).`,
-            });
-          } else {
-            newAdministrativeUnitId = child.id;
-          }
+          newAdministrativeUnitId = child.id;
         }
       }
-
-      await tx
-        .update(images)
-        .set({
-          hash: entry.hash,
-          lat: entry.lat_lng?.[0] ?? null,
-          lng: entry.lat_lng?.[1] ?? null,
-          mainLocation: entry.main_location,
-          secondaryLocations: entry.secondary_locations,
-          tags: entry.tags,
-          userTags: entry.user_tags,
-          webVisible: entry.web_visible,
-          webRanking: entry.web_ranking,
-          printVisible: entry.print_visible,
-          printRanking: entry.print_ranking,
-          updatedAt: new Date(),
-          ...(newAdministrativeUnitId ? { administrativeUnitId: newAdministrativeUnitId } : {}),
-        })
-        .where(eq(images.id, entry.id));
     }
+
+    return {
+      id: entry.id,
+      hash: entry.hash,
+      lat: entry.lat_lng?.[0] ?? null,
+      lng: entry.lat_lng?.[1] ?? null,
+      mainLocation: entry.main_location,
+      secondaryLocations: entry.secondary_locations,
+      tags: entry.tags,
+      userTags: entry.user_tags,
+      webVisible: entry.web_visible,
+      webRanking: entry.web_ranking,
+      printVisible: entry.print_visible,
+      printRanking: entry.print_ranking,
+      newAdministrativeUnitId,
+      warning,
+    };
   });
 
+  return { success: true, skippedCount, plan };
+}
+
+export interface ApplyImageMatchEntryResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Zweiter Schritt von "Abgleich durchführen": schreibt GENAU EINE, von
+ * prepareImageMatch bereits entschiedene Zeile. Wird vom Client einzeln
+ * pro Ordner aufgerufen (nicht als eine große Transaktion über alle Zeilen)
+ * — dadurch kann die UI zwischen den Aufrufen den Fortschritt live anzeigen.
+ * Legt NIE eine neue Zeile an, löscht NIE eine Zeile.
+ */
+export async function applyImageMatchEntry(entry: PreparedMatchEntry): Promise<ApplyImageMatchEntryResult> {
+  const session = await auth();
+
+  // Unabhängig von der Seiten-Gate erneut geprüft — nie auf die
+  // Middleware/Page-Prüfung allein verlassen.
+  if (!session?.user) {
+    return { success: false, error: "Nicht angemeldet." };
+  }
+  if (!canUploadImages(session.user.role)) {
+    return { success: false, error: "Nur admin oder super_admin dürfen den Abgleich durchführen." };
+  }
+
+  await db
+    .update(images)
+    .set({
+      hash: entry.hash,
+      lat: entry.lat,
+      lng: entry.lng,
+      mainLocation: entry.mainLocation,
+      secondaryLocations: entry.secondaryLocations,
+      tags: entry.tags,
+      userTags: entry.userTags,
+      webVisible: entry.webVisible,
+      webRanking: entry.webRanking,
+      printVisible: entry.printVisible,
+      printRanking: entry.printRanking,
+      updatedAt: new Date(),
+      ...(entry.newAdministrativeUnitId ? { administrativeUnitId: entry.newAdministrativeUnitId } : {}),
+    })
+    .where(eq(images.id, entry.id));
+
   revalidatePath("/admin/images/upload");
-  return {
-    success: true,
-    updatedCount: matched.length,
-    skippedCount,
-    warnings,
-    updatedIds: matched.map((entry) => entry.id),
-  };
+  return { success: true };
 }

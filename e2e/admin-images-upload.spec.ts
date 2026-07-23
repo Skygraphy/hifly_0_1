@@ -1,5 +1,4 @@
 import { config } from "dotenv";
-import { readFile } from "node:fs/promises";
 import { S3Client, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import pg from "pg";
 import { test, expect } from "@playwright/test";
@@ -375,6 +374,7 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
   await client.connect();
 
   const folderId = "Matchtest_Gasse_2024_01_01_009_AAAAAA_99999999-9999-9999-9999-999999999999";
+  const folderId2 = "Matchtest_Gasse_2024_01_01_010_BBBBBB_99999999-9999-9999-9999-999999999998";
 
   try {
     const { rows: userRows } = await client.query<{ id: string }>("SELECT id FROM users WHERE email = $1", [
@@ -383,12 +383,13 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
     const uploaderId = userRows[0].id;
     const tullnId = await getAdministrativeUnitIdByName("Tulln");
 
-    // Fixture-Zeile mit Alt-Werten anlegen — der Abgleich muss sie 1:1 durch
-    // die Datei-Werte ersetzen (auch den Standort NICHT verändern, nur per
-    // area prüfen).
+    // Zwei Fixture-Zeilen mit Alt-Werten anlegen — der Abgleich muss sie 1:1
+    // durch die Datei-Werte ersetzen (auch den Standort NICHT verändern, nur
+    // per area prüfen). Zwei Zeilen statt einer, damit der Live-Fortschritt
+    // (siehe unten) einen echten Zwischenschritt zum Prüfen hat.
     await client.query(
       `INSERT INTO images (id, address, capture_date, sequence_number, hash, uuid, administrative_unit_id, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         folderId,
         "Matchtest Gasse",
@@ -398,8 +399,38 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
         "99999999-9999-9999-9999-999999999999",
         tullnId,
         uploaderId,
+        folderId2,
+        "Matchtest Gasse",
+        "2024-01-01",
+        10,
+        "AAAAAA",
+        "99999999-9999-9999-9999-999999999998",
+        tullnId,
+        uploaderId,
       ]
     );
+
+    // showSaveFilePicker (File System Access API) zeigt im echten Browser
+    // einen nativen "Speichern unter"-Dialog — den kann Playwright nicht
+    // bedienen (kein DOM, keine OS-Fenster). Simuliert stattdessen
+    // createWritable/write/close und legt das Ergebnis in
+    // window.__savedFile ab, damit der Test die tatsächliche Integration
+    // prüfen kann, statt nur den Download-Fallback für Browser ohne diese API.
+    await page.addInitScript(() => {
+      (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = async (options: {
+        suggestedName?: string;
+      }) => ({
+        createWritable: async () => ({
+          write: async (data: string) => {
+            (window as unknown as { __savedFile?: { name?: string; content: string } }).__savedFile = {
+              name: options?.suggestedName,
+              content: data,
+            };
+          },
+          close: async () => {},
+        }),
+      });
+    });
 
     await loginWithCredentials(page, superEmail, superPassword);
     await page.goto("/admin/images/upload");
@@ -421,6 +452,21 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
           print_ranking: 3,
           do_match: true,
         },
+        {
+          id: folderId2,
+          hash: "CCCCCC",
+          lat_lng: [48.2, 16.2],
+          main_location: "Neuer Ort 2",
+          secondary_locations: [],
+          tags: [],
+          user_tags: [],
+          area: null,
+          web_visible: true,
+          web_ranking: 1,
+          print_visible: true,
+          print_ranking: 1,
+          do_match: true,
+        },
       ],
     });
 
@@ -431,25 +477,41 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
     });
     await expect(page.getByText("match-test.json")).toBeVisible();
 
+    // Jede Zeile wird einzeln geschrieben (nicht als ein Bulk-Aufruf) —
+    // dadurch kann die UI live anzeigen, welcher Ordner gerade dran ist.
+    // Die Server-Action-Aufrufe künstlich verzögern, damit der Fortschritt
+    // im Test zuverlässig zwischen den beiden Zeilen beobachtbar ist.
+    await page.route("**/admin/images/upload", async (route) => {
+      if (route.request().method() === "POST") {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      await route.continue();
+    });
+
     await page.getByTestId("run-match").click();
+    const progress = page.getByTestId("match-progress");
+    await expect(progress).toBeVisible();
+    await expect(progress).toContainText("/ 2");
+    await expect(progress).toContainText(new RegExp(`${folderId}|${folderId2}`));
+
     const result = page.getByTestId("match-result");
-    await expect(result).toBeVisible();
-    await expect(result).toContainText("1 aktualisiert");
+    await expect(result).toBeVisible({ timeout: 15000 });
+    await page.unroute("**/admin/images/upload");
+    await expect(result).toContainText("2 aktualisiert");
     await expect(result).toContainText(folderId);
     await expect(result).toContainText(/area/i);
 
-    // Der Download-Button bietet dieselbe Datei mit do_match: false für die
+    // Der Speichern-Button bietet dieselbe Datei mit do_match: false für die
     // gerade synchronisierte Zeile an — verhindert, dass ein erneuter Lauf
     // mit derselben Datei später in der DB gemachte Änderungen überschreibt.
-    const downloadPromise = page.waitForEvent("download");
-    await page.getByTestId("download-updated-match-file").click();
-    const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe("match-test.json");
-    const downloadPath = await download.path();
-    const downloadedEntries = JSON.parse(await readFile(downloadPath!, "utf8"));
-    expect(downloadedEntries).toHaveLength(1);
-    expect(downloadedEntries[0].id).toBe(folderId);
-    expect(downloadedEntries[0].do_match).toBe(false);
+    await page.getByTestId("save-updated-match-file").click();
+    const saved = await page.evaluate(
+      () => (window as unknown as { __savedFile?: { name?: string; content: string } }).__savedFile
+    );
+    expect(saved?.name).toBe("match-test.json");
+    const downloadedEntries = JSON.parse(saved!.content);
+    expect(downloadedEntries).toHaveLength(2);
+    expect(downloadedEntries.every((entry: { do_match: boolean }) => entry.do_match === false)).toBe(true);
 
     const { rows } = await client.query(
       `SELECT hash, lat, lng, main_location, secondary_locations, tags, user_tags,
@@ -473,7 +535,7 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
     // area validiert nur — der zugewiesene Standort bleibt unverändert.
     expect(row.administrative_unit_id).toBe(tullnId);
   } finally {
-    await client.query("DELETE FROM images WHERE id = $1", [folderId]);
+    await client.query("DELETE FROM images WHERE id = ANY($1)", [[folderId, folderId2]]);
     await client.end();
   }
 });

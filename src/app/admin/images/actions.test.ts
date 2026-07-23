@@ -23,9 +23,6 @@ const { authMock, dbMock } = vi.hoisted(() => {
     where: updateWhereMock,
   }));
   const updateMock = vi.fn(() => ({ set: setMock }));
-  const transactionMock = vi.fn((fn: (tx: { update: typeof updateMock }) => Promise<unknown>) =>
-    fn({ update: updateMock })
-  );
 
   return {
     authMock: vi.fn(),
@@ -42,7 +39,6 @@ const { authMock, dbMock } = vi.hoisted(() => {
       update: updateMock,
       setMock,
       updateWhereMock,
-      transaction: transactionMock,
     },
   };
 });
@@ -51,7 +47,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/db", () => ({ db: dbMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { createImageRecord, runImageMatch } = await import("./actions");
+const { createImageRecord, prepareImageMatch, applyImageMatchEntry } = await import("./actions");
 
 const validInput = {
   id: "Adalbert_Stifter_Gasse_2024_07_13_001_C3E2EA_0f4e99ef-3261-416e-9de5-aa8223857b91",
@@ -184,7 +180,7 @@ function makeEntry(overrides: Partial<import("@/lib/parse-match-file").MatchFile
   };
 }
 
-describe("runImageMatch", () => {
+describe("prepareImageMatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.selectWhereMock.mockResolvedValue([]);
@@ -195,67 +191,61 @@ describe("runImageMatch", () => {
   it("lehnt ab, wenn niemand eingeloggt ist", async () => {
     authMock.mockResolvedValue(null);
 
-    const result = await runImageMatch([makeEntry()]);
+    const result = await prepareImageMatch([makeEntry()]);
 
     expect(result.success).toBe(false);
-    expect(dbMock.transaction).not.toHaveBeenCalled();
+    expect(dbMock.select).not.toHaveBeenCalled();
   });
 
   it("lehnt eine plain user-Rolle ab", async () => {
     authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
 
-    const result = await runImageMatch([makeEntry()]);
+    const result = await prepareImageMatch([makeEntry()]);
 
     expect(result.success).toBe(false);
-    expect(dbMock.transaction).not.toHaveBeenCalled();
+    expect(dbMock.select).not.toHaveBeenCalled();
   });
 
   it("ignoriert Zeilen mit do_match !== true, komplett (keine DB-Abfrage für deren id)", async () => {
-    const result = await runImageMatch([makeEntry({ id: "img-skip", do_match: false })]);
+    const result = await prepareImageMatch([makeEntry({ id: "img-skip", do_match: false })]);
 
     expect(result.success).toBe(true);
-    expect(result.updatedCount).toBe(0);
+    expect(result.plan).toEqual([]);
     expect(result.skippedCount).toBe(0);
     expect(dbMock.select).not.toHaveBeenCalled();
-    expect(dbMock.transaction).not.toHaveBeenCalled();
   });
 
-  it("überspringt Datei-Zeilen ohne passende DB-Zeile, ohne Warnung und ohne Update", async () => {
+  it("überspringt Datei-Zeilen ohne passende DB-Zeile, ohne Plan-Eintrag", async () => {
     dbMock.selectWhereMock.mockResolvedValue([]); // keine existierende images-Zeile
 
-    const result = await runImageMatch([makeEntry({ id: "img-missing" })]);
+    const result = await prepareImageMatch([makeEntry({ id: "img-missing" })]);
 
     expect(result.success).toBe(true);
-    expect(result.updatedCount).toBe(0);
+    expect(result.plan).toEqual([]);
     expect(result.skippedCount).toBe(1);
-    expect(result.warnings).toEqual([]);
-    expect(result.updatedIds).toEqual([]);
-    expect(dbMock.transaction).not.toHaveBeenCalled();
   });
 
-  it("updatedIds enthält nur tatsächlich synchronisierte Zeilen, nicht übersprungene", async () => {
+  it("plant nur tatsächlich vorhandene Zeilen, überspringt fehlende", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ id: "img-1" }), makeEntry({ id: "img-missing" })]);
+    const result = await prepareImageMatch([makeEntry({ id: "img-1" }), makeEntry({ id: "img-missing" })]);
 
-    expect(result.updatedIds).toEqual(["img-1"]);
+    expect(result.plan?.map((entry) => entry.id)).toEqual(["img-1"]);
     expect(result.skippedCount).toBe(1);
   });
 
-  it("area passt zu einem direkten Kind, super_admin → administrativeUnitId wird neu zugewiesen, kein Warning", async () => {
+  it("bildet die Datei-Felder 1:1 auf den Plan-Eintrag ab", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.success).toBe(true);
-    expect(result.updatedCount).toBe(1);
-    expect(result.warnings).toEqual([]);
-    expect(dbMock.setMock).toHaveBeenCalledWith(
+    expect(result.plan).toEqual([
       expect.objectContaining({
+        id: "img-1",
         hash: "ABCDEF",
         lat: 48.3,
         lng: 16.3,
@@ -267,76 +257,70 @@ describe("runImageMatch", () => {
         webRanking: 1,
         printVisible: true,
         printRanking: 1,
-        administrativeUnitId: "unit-child-f",
-      })
-    );
+        newAdministrativeUnitId: "unit-child-f",
+        warning: null,
+      }),
+    ]);
   });
 
-  it("administrativeUnitId zeigt bereits auf die zu area passende Einheit (erneuter Lauf) → kein Warning, keine Änderung", async () => {
+  it("administrativeUnitId zeigt bereits auf die zu area passende Einheit (erneuter Lauf) → kein Warning, keine Änderung geplant", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-child-f", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.warnings).toEqual([]);
-    const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("administrativeUnitId");
-    expect(setArg.hash).toBe("ABCDEF");
+    expect(result.plan?.[0].warning).toBeNull();
+    expect(result.plan?.[0].newAdministrativeUnitId).toBeNull();
   });
 
-  it("area passt zu einem direkten Kind, admin MIT Freigabe für das Kind → administrativeUnitId wird neu zugewiesen", async () => {
-    // Aufrufreihenfolge in runImageMatch: erst images-Zeilen, danach (nur
-    // für Nicht-super_admin) admin_location_grants — beide über denselben
-    // .where()-Mock, daher als Once-Kette in genau dieser Reihenfolge.
+  it("area passt zu einem direkten Kind, admin MIT Freigabe für das Kind → Neuzuweisung geplant", async () => {
+    // Aufrufreihenfolge in prepareImageMatch: erst images-Zeilen, danach
+    // admin_location_grants — beide über denselben .where()-Mock, daher als
+    // Once-Kette in genau dieser Reihenfolge.
     dbMock.selectWhereMock
       .mockResolvedValueOnce([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }])
       .mockResolvedValueOnce([{ administrativeUnitId: "unit-child-f", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.warnings).toEqual([]);
-    expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ administrativeUnitId: "unit-child-f" }));
+    expect(result.plan?.[0].warning).toBeNull();
+    expect(result.plan?.[0].newAdministrativeUnitId).toBe("unit-child-f");
   });
 
-  it("area passt zu einem direkten Kind, admin OHNE Freigabe → Warning, keine Neuzuweisung", async () => {
+  it("area passt zu einem direkten Kind, admin OHNE Freigabe → Warning, keine Neuzuweisung geplant", async () => {
     dbMock.selectWhereMock
       .mockResolvedValueOnce([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }])
       .mockResolvedValueOnce([]); // keine Freigaben
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.warnings).toEqual([{ id: "img-1", message: expect.stringMatching(/Berechtigung/i) }]);
-    const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("administrativeUnitId");
+    expect(result.plan?.[0].warning).toMatch(/Berechtigung/i);
+    expect(result.plan?.[0].newAdministrativeUnitId).toBeNull();
   });
 
-  it("area passt zu keinem direkten Kind der aktuell zugewiesenen Einheit → Warning, keine Neuzuweisung", async () => {
+  it("area passt zu keinem direkten Kind der aktuell zugewiesenen Einheit → Warning, keine Neuzuweisung geplant", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "X" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "X" })]);
 
-    expect(result.success).toBe(true);
-    expect(result.updatedCount).toBe(1);
-    expect(result.warnings).toEqual([{ id: "img-1", message: expect.stringMatching(/existiert nicht/i) }]);
-    const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("administrativeUnitId");
+    expect(result.plan?.[0].warning).toMatch(/existiert nicht/i);
+    expect(result.plan?.[0].newAdministrativeUnitId).toBeNull();
   });
 
-  it("area fehlt in der Datei → Warning, keine Neuzuweisung, Update läuft trotzdem", async () => {
+  it("area fehlt in der Datei → Warning, keine Neuzuweisung geplant", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: null })]);
+    const result = await prepareImageMatch([makeEntry({ area: null })]);
 
-    expect(result.warnings).toEqual([{ id: "img-1", message: expect.stringMatching(/area fehlt/i) }]);
-    const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("administrativeUnitId");
+    expect(result.plan?.[0].warning).toMatch(/area fehlt/i);
+    expect(result.plan?.[0].newAdministrativeUnitId).toBeNull();
   });
 
   it("zugewiesener Standort ist eine Region → Warning, area-Zuordnung wird (noch) nicht unterstützt", async () => {
@@ -344,11 +328,9 @@ describe("runImageMatch", () => {
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: null, regionId: "region-1" }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.warnings).toEqual([{ id: "img-1", message: expect.stringMatching(/region/i) }]);
-    const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("administrativeUnitId");
+    expect(result.plan?.[0].warning).toMatch(/region/i);
   });
 
   it("Zeile hat noch keinen zugewiesenen Standort → Warning", async () => {
@@ -356,31 +338,81 @@ describe("runImageMatch", () => {
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: null, regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    const result = await runImageMatch([makeEntry({ area: "F" })]);
+    const result = await prepareImageMatch([makeEntry({ area: "F" })]);
 
-    expect(result.warnings).toEqual([{ id: "img-1", message: expect.stringMatching(/keinen zugewiesenen Standort/i) }]);
+    expect(result.plan?.[0].warning).toMatch(/keinen zugewiesenen Standort/i);
   });
 
-  it("leere Felder in der Datei löschen die vorhandenen DB-Werte (Datei ist Wahrheit)", async () => {
+  it("schreibt nichts in die DB — reines Planen", async () => {
     authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
     dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
     dbMock.setFromAwaitRows([parentUnit, childUnitF]);
 
-    await runImageMatch([
-      makeEntry({
-        area: null,
-        lat_lng: null,
-        main_location: null,
-        secondary_locations: [],
-        tags: [],
-        user_tags: [],
-        web_visible: null,
-        web_ranking: null,
-        print_visible: null,
-        print_ranking: null,
-      }),
-    ]);
+    await prepareImageMatch([makeEntry({ area: "F" })]);
 
+    expect(dbMock.update).not.toHaveBeenCalled();
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyImageMatchEntry", () => {
+  const preparedEntry = {
+    id: "img-1",
+    hash: "ABCDEF",
+    lat: 48.3,
+    lng: 16.3,
+    mainLocation: "Teststraße",
+    secondaryLocations: ["SL1"],
+    tags: ["T1"],
+    userTags: ["UT1"],
+    webVisible: true,
+    webRanking: 1,
+    printVisible: true,
+    printRanking: 1,
+    newAdministrativeUnitId: "unit-child-f",
+    warning: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist", async () => {
+    authMock.mockResolvedValue(null);
+
+    const result = await applyImageMatchEntry(preparedEntry);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt eine plain user-Rolle ab", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
+
+    const result = await applyImageMatchEntry(preparedEntry);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("schreibt alle Feldwerte 1:1 (Datei ist Wahrheit, auch leere Werte löschen)", async () => {
+    const result = await applyImageMatchEntry({
+      ...preparedEntry,
+      lat: null,
+      lng: null,
+      mainLocation: null,
+      secondaryLocations: [],
+      tags: [],
+      userTags: [],
+      webVisible: null,
+      webRanking: null,
+      printVisible: null,
+      printRanking: null,
+      newAdministrativeUnitId: null,
+    });
+
+    expect(result.success).toBe(true);
     expect(dbMock.setMock).toHaveBeenCalledWith(
       expect.objectContaining({
         lat: null,
@@ -395,18 +427,15 @@ describe("runImageMatch", () => {
         printRanking: null,
       })
     );
+    expect(dbMock.setMock.mock.calls[0][0]).not.toHaveProperty("administrativeUnitId");
   });
 
-  it("regionId wird nie verändert, es wird nie inserted oder gelöscht", async () => {
-    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
-    dbMock.selectWhereMock.mockResolvedValue([{ id: "img-1", administrativeUnitId: "unit-parent", regionId: null }]);
-    dbMock.setFromAwaitRows([parentUnit, childUnitF]);
-
-    await runImageMatch([makeEntry({ area: "F" })]);
+  it("setzt administrativeUnitId nur, wenn newAdministrativeUnitId gesetzt ist — regionId nie", async () => {
+    await applyImageMatchEntry(preparedEntry);
 
     const setArg = dbMock.setMock.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("regionId");
     expect(setArg.administrativeUnitId).toBe("unit-child-f");
+    expect(setArg).not.toHaveProperty("regionId");
     expect(dbMock.insert).not.toHaveBeenCalled();
   });
 });

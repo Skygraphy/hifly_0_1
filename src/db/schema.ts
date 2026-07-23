@@ -236,12 +236,9 @@ export const images = pgTable(
       onDelete: "restrict",
     }),
     regionId: uuid("region_id").references(() => regions.id, { onDelete: "restrict" }),
-    uploadedBy: uuid("uploaded_by")
-      .notNull()
-      .references(() => users.id),
     // Ab hier: zusätzliche Metadaten aus dem "Abgleich" mit einer externen
     // Datendatei (z.B. image_data/klosterneuburg_stadt.json, siehe
-    // runImageMatch in src/app/admin/images/actions.ts) — bewusst alle
+    // prepareImageMatch/applyImageMatchEntry in src/app/admin/images/actions.ts) — bewusst alle
     // nullable ohne Default, da bereits hochgeladene Bilder diese Werte
     // erst beim nächsten Abgleich bekommen, nicht beim Upload selbst.
     lat: doublePrecision("lat"),
@@ -254,6 +251,9 @@ export const images = pgTable(
     webRanking: integer("web_ranking"),
     printVisible: boolean("print_visible"),
     printRanking: integer("print_ranking"),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => users.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

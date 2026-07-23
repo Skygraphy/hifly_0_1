@@ -18,8 +18,38 @@ import type { StandortRef } from "@/lib/standort";
 import { parseImageFolderName, s3KeyFor, type ParsedImageFolder } from "@/lib/image-folder";
 import { computeFileMd5 } from "@/lib/client-md5";
 import { parseMatchFileImages } from "@/lib/parse-match-file";
-import { createImageRecord, runImageMatch, type RunImageMatchResult } from "../actions";
+import { createImageRecord, prepareImageMatch, applyImageMatchEntry } from "../actions";
 import { LocationPickerDialog } from "./location-picker-dialog";
+
+interface MatchWarning {
+  id: string;
+  message: string;
+}
+
+// Vom Client aus den einzelnen applyImageMatchEntry-Aufrufen zusammengesetzt
+// (siehe handleRunMatch) — kein direkter Server-Rückgabewert mehr, da der
+// Abgleich Zeile für Zeile läuft, um live Fortschritt anzeigen zu können.
+interface MatchRunResult {
+  success: boolean;
+  error?: string;
+  updatedCount?: number;
+  skippedCount?: number;
+  warnings?: MatchWarning[];
+  updatedIds?: string[];
+}
+
+// showSaveFilePicker (File System Access API) ist in TypeScripts DOM-Lib
+// nicht typisiert — nur in Chromium-Browsern verfügbar, daher als optional
+// deklariert und vor jedem Aufruf per typeof-Check geprüft (siehe
+// handleSaveUpdatedFile).
+declare global {
+  interface Window {
+    showSaveFilePicker?: (options?: {
+      suggestedName?: string;
+      types?: { description?: string; accept: Record<string, string[]> }[];
+    }) => Promise<FileSystemFileHandle>;
+  }
+}
 
 const UPLOAD_CONCURRENCY = 3;
 
@@ -215,7 +245,12 @@ export function ImageUploadManager({
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [matchFile, setMatchFile] = useState<File | null>(null);
   const [isMatching, setIsMatching] = useState(false);
-  const [matchResult, setMatchResult] = useState<RunImageMatchResult | null>(null);
+  const [matchResult, setMatchResult] = useState<MatchRunResult | null>(null);
+  // Live-Fortschritt während des Abgleichs (siehe handleRunMatch) — null,
+  // solange kein Lauf aktiv ist.
+  const [matchProgress, setMatchProgress] = useState<{ total: number; done: number; currentId: string | null } | null>(
+    null
+  );
   // Nach einem erfolgreichen Abgleich vorbereitet: dieselbe Datei mit
   // do_match: false für jede tatsächlich synchronisierte Zeile — verhindert,
   // dass ein erneuter Lauf mit derselben Datei später in der DB gemachte
@@ -290,6 +325,7 @@ export function ImageUploadManager({
   function handleMatchFilePick(event: React.ChangeEvent<HTMLInputElement>) {
     setMatchFile(event.target.files?.[0] ?? null);
     setMatchResult(null);
+    setMatchProgress(null);
     setUpdatedFileDownload(null);
     event.target.value = "";
   }
@@ -297,6 +333,7 @@ export function ImageUploadManager({
   function handleClearMatchFile() {
     setMatchFile(null);
     setMatchResult(null);
+    setMatchProgress(null);
     setUpdatedFileDownload(null);
   }
 
@@ -304,17 +341,55 @@ export function ImageUploadManager({
     if (!matchFile) return;
     setIsMatching(true);
     setMatchResult(null);
+    setMatchProgress(null);
     setUpdatedFileDownload(null);
     try {
       const sourceText = await matchFile.text();
       const entries = parseMatchFileImages(sourceText);
-      const result = await runImageMatch(entries);
-      setMatchResult(result);
+      const prepared = await prepareImageMatch(entries);
+      if (!prepared.success || !prepared.plan) {
+        setMatchResult({ success: false, error: prepared.error ?? "Abgleich konnte nicht vorbereitet werden." });
+        return;
+      }
 
-      if (result.success && result.updatedIds && result.updatedIds.length > 0) {
-        const updatedIds = new Set(result.updatedIds);
+      // Zeile für Zeile statt eines einzigen Bulk-Aufrufs — dadurch kann
+      // die UI zwischen den Schreibvorgängen live anzeigen, welcher Ordner
+      // gerade dran ist, statt minutenlang ohne Rückmeldung zu warten.
+      setMatchProgress({ total: prepared.plan.length, done: 0, currentId: null });
+      const warnings: MatchWarning[] = [];
+      const updatedIds: string[] = [];
+
+      for (const planEntry of prepared.plan) {
+        setMatchProgress((prev) => (prev ? { ...prev, currentId: planEntry.id } : prev));
+        try {
+          const applyResult = await applyImageMatchEntry(planEntry);
+          if (applyResult.success) {
+            updatedIds.push(planEntry.id);
+            if (planEntry.warning) warnings.push({ id: planEntry.id, message: planEntry.warning });
+          } else {
+            warnings.push({ id: planEntry.id, message: applyResult.error ?? "Speichern fehlgeschlagen." });
+          }
+        } catch (err) {
+          warnings.push({
+            id: planEntry.id,
+            message: err instanceof Error ? err.message : "Unbekannter Fehler beim Speichern.",
+          });
+        }
+        setMatchProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
+      }
+
+      setMatchResult({
+        success: true,
+        updatedCount: updatedIds.length,
+        skippedCount: prepared.skippedCount ?? 0,
+        warnings,
+        updatedIds,
+      });
+
+      if (updatedIds.length > 0) {
+        const updatedIdSet = new Set(updatedIds);
         const updatedEntries = entries.map((entry) =>
-          updatedIds.has(entry.id) ? { ...entry, do_match: false } : entry
+          updatedIdSet.has(entry.id) ? { ...entry, do_match: false } : entry
         );
         const content = `[\n${updatedEntries.map((entry) => `  ${JSON.stringify(entry)}`).join(",\n")}\n]\n`;
         setUpdatedFileDownload({ filename: matchFile.name, content });
@@ -325,12 +400,34 @@ export function ImageUploadManager({
         error: err instanceof Error ? err.message : "Unbekannter Fehler beim Abgleich.",
       });
     } finally {
+      setMatchProgress(null);
       setIsMatching(false);
     }
   }
 
-  function handleDownloadUpdatedFile() {
+  async function handleSaveUpdatedFile() {
     if (!updatedFileDownload) return;
+
+    // Chromium-Browser: echter Save-Dialog, der admin wählt den Speicherort
+    // selbst (z.B. direkt über die Originaldatei). Bricht der admin ab,
+    // wirft der Picker einen AbortError — kein Fehler, einfach nichts tun.
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: updatedFileDownload.filename,
+          types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(updatedFileDownload.content);
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+
+    // Fallback (Firefox/Safari oder falls der Picker fehlschlägt): normaler
+    // Download in den Standard-Downloads-Ordner unter demselben Dateinamen.
     const blob = new Blob([updatedFileDownload.content], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -752,6 +849,34 @@ export function ImageUploadManager({
           </div>
         </div>
 
+        {matchProgress && (
+          <div data-testid="match-progress" className="flex flex-col gap-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="relative flex size-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+              </span>
+              <span className="text-muted-foreground">
+                Gleiche ab… {matchProgress.done} / {matchProgress.total}
+                {matchProgress.currentId && (
+                  <>
+                    {" "}
+                    · <span className="font-mono text-xs">{matchProgress.currentId}</span>
+                  </>
+                )}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{
+                  width: `${matchProgress.total > 0 ? Math.round((matchProgress.done / matchProgress.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {matchResult && (
           <div data-testid="match-result" className="flex flex-col gap-2 text-sm">
             {matchResult.success ? (
@@ -763,11 +888,11 @@ export function ImageUploadManager({
                     type="button"
                     variant="outline"
                     size="sm"
-                    data-testid="download-updated-match-file"
-                    onClick={handleDownloadUpdatedFile}
+                    data-testid="save-updated-match-file"
+                    onClick={handleSaveUpdatedFile}
                   >
                     <Download className="size-3.5" />
-                    Aktualisierte Datei herunterladen
+                    Aktualisierte Datei speichern
                   </Button>
                 )}
               </span>
