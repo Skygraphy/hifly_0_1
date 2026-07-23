@@ -10,6 +10,7 @@ const at: AdministrativeUnit = {
   name: "Österreich",
   shortName: null,
   color: null,
+  published: true,
 };
 const salzburg: AdministrativeUnit = {
   id: "salzburg",
@@ -19,6 +20,7 @@ const salzburg: AdministrativeUnit = {
   name: "Salzburg",
   shortName: null,
   color: null,
+  published: true,
 };
 const tirol: AdministrativeUnit = {
   id: "tirol",
@@ -28,6 +30,7 @@ const tirol: AdministrativeUnit = {
   name: "Tirol",
   shortName: null,
   color: null,
+  published: true,
 };
 const kaernten: AdministrativeUnit = {
   id: "kaernten",
@@ -37,6 +40,7 @@ const kaernten: AdministrativeUnit = {
   name: "Kärnten",
   shortName: null,
   color: null,
+  published: true,
 };
 const zellAmSee: AdministrativeUnit = {
   id: "zell-am-see",
@@ -46,6 +50,7 @@ const zellAmSee: AdministrativeUnit = {
   name: "Zell am See",
   shortName: null,
   color: null,
+  published: true,
 };
 const lienz: AdministrativeUnit = {
   id: "lienz",
@@ -55,6 +60,7 @@ const lienz: AdministrativeUnit = {
   name: "Lienz",
   shortName: null,
   color: null,
+  published: true,
 };
 const spittal: AdministrativeUnit = {
   id: "spittal",
@@ -64,6 +70,7 @@ const spittal: AdministrativeUnit = {
   name: "Spittal an der Drau",
   shortName: null,
   color: null,
+  published: true,
 };
 const noe: AdministrativeUnit = {
   id: "noe",
@@ -73,6 +80,7 @@ const noe: AdministrativeUnit = {
   name: "Niederösterreich",
   shortName: null,
   color: null,
+  published: true,
 };
 const kremsLand: AdministrativeUnit = {
   id: "krems-land",
@@ -82,6 +90,7 @@ const kremsLand: AdministrativeUnit = {
   name: "Krems-Land",
   shortName: null,
   color: null,
+  published: true,
 };
 const melk: AdministrativeUnit = {
   id: "melk",
@@ -91,6 +100,7 @@ const melk: AdministrativeUnit = {
   name: "Melk",
   shortName: null,
   color: null,
+  published: true,
 };
 
 const units = [at, salzburg, tirol, kaernten, zellAmSee, lienz, spittal, noe, kremsLand, melk];
@@ -102,6 +112,7 @@ const hoheTauern: Region = {
   color: null,
   parentId: null,
   homeLevel: "federal",
+  published: true,
 };
 const wachau: Region = {
   id: "wachau",
@@ -110,6 +121,7 @@ const wachau: Region = {
   color: null,
   parentId: null,
   homeLevel: "federal",
+  published: true,
 };
 
 describe("groupRegionsByParent", () => {

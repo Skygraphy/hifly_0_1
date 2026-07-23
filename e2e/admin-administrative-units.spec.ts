@@ -361,3 +361,241 @@ test("+ Neu anlegen verlangt mindestens eine Verknüpfung — Anlegen ist ohne H
   await page.getByTestId("region-confirm-delete").click();
   await expect(row).not.toBeVisible();
 });
+
+test("eine neu angelegte Region ist standardmäßig ein Entwurf — erst nach Freigabe über die Checkbox auf der Zeile erscheint sie öffentlich", async ({
+  page,
+  browser,
+}) => {
+  const { email, password: superAdminPassword } = getSuperAdminCredentials();
+  await loginWithCredentials(page, email, superAdminPassword);
+  await page.goto("/admin/administrative-units");
+  await page.getByTestId("unit-view-toggle-columns").click();
+
+  await page.locator('[data-testid^="unit-column-select-"]', { hasText: "Salzburg" }).click();
+  await page.locator('[data-testid^="unit-column-add-district-"]').click();
+  await page.getByTestId(/^unit-column-add-region-district-/).click();
+  await page.getByTestId("column-regions-new-name").fill("E2E Entwurf-Testregion");
+  await page.locator("label", { hasText: "Zell am See" }).locator('input[type="checkbox"]').check();
+  // Kein Freigabe-Feld mehr im Anlegen-Dialog — Entwurf ist der Default,
+  // Freigabe passiert danach über die Checkbox auf der Zeile.
+  await page.getByTestId("column-regions-submit").click();
+  await expect(page.getByTestId("column-regions-submit")).not.toBeVisible();
+
+  await page.reload();
+  await page.getByTestId("unit-view-toggle-columns").click();
+  await page.locator('[data-testid^="unit-column-select-"]', { hasText: "Salzburg" }).click();
+  const row = page.locator('[data-testid^="region-row-"]', { hasText: "E2E Entwurf-Testregion" });
+  // Im Admin-Bereich bleibt der Entwurf ganz normal sichtbar/editierbar.
+  await expect(row).toBeVisible();
+
+  // Eigener, anonymer Browser-Context für die öffentliche Sichtbarkeits-
+  // Prüfung — sonst zeigt "/" wegen des bereits gespeicherten Standorts des
+  // super_admin direkt die Breadcrumb- statt der Spalten-Ansicht. Ein
+  // frischer Context PRO Prüfung (statt Wiederverwendung): das Anklicken
+  // von "Salzburg" im Picker speichert es selbst als Gast-Standort
+  // (localStorage) — ein zweiter Besuch im selben Context würde daher
+  // direkt in die Breadcrumb-Ansicht dieses Gast-Standorts starten statt
+  // wieder im Picker.
+  async function regionVisibleAnonymously(): Promise<boolean> {
+    const anonContext = await browser.newContext();
+    const anonPage = await anonContext.newPage();
+    await anonPage.goto("/");
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Österreich" }).click();
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Salzburg" }).click();
+    const count = await anonPage
+      .locator('[data-testid^="region-option-"]', { hasText: "E2E Entwurf-Testregion" })
+      .count();
+    await anonContext.close();
+    return count > 0;
+  }
+
+  expect(await regionVisibleAnonymously()).toBe(false);
+
+  // Über die Checkbox direkt auf der Zeile freigeben — jetzt erscheint sie
+  // auch öffentlich.
+  const publishCheckbox = row.getByTestId(/^region-published-/);
+  await expect(publishCheckbox).not.toBeChecked();
+  await publishCheckbox.click();
+  await expect(publishCheckbox).toBeChecked();
+
+  expect(await regionVisibleAnonymously()).toBe(true);
+
+  // Cleanup.
+  await row.getByTestId(/^region-delete-/).click();
+  await page.getByTestId("region-confirm-delete").click();
+  await expect(row).not.toBeVisible();
+});
+
+test("eine neu angelegte Verwaltungseinheit ist standardmäßig ein Entwurf — erst nach Freigabe über die Checkbox auf der Zeile erscheint sie öffentlich", async ({
+  page,
+  browser,
+}) => {
+  const { email, password: superAdminPassword } = getSuperAdminCredentials();
+  await loginWithCredentials(page, email, superAdminPassword);
+  await page.goto("/admin/administrative-units");
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
+  await page.getByTestId("unit-breadcrumb-state").click();
+  await page.locator('[data-testid^="unit-option-"]', { hasText: "Niederösterreich" }).click();
+  await page.getByTestId("unit-breadcrumb-district").click();
+  await page.locator('[data-testid^="unit-option-"]', { hasText: "Tulln" }).click();
+  await page.getByTestId("unit-view-toggle-columns").click();
+
+  const addColumnButton = page.locator('[data-testid^="unit-column-add-cadastral_municipality-"]');
+  await addColumnButton.click();
+  await page.getByTestId(/^unit-column-add-unit-cadastral_municipality-/).click();
+  await page.getByTestId("unit-form-name").fill("E2E Entwurf-Einheit");
+  await page.getByTestId("unit-form-code").fill("9998");
+  // Kein Freigabe-Feld mehr im Anlegen-Dialog — Entwurf ist der Default,
+  // Freigabe passiert danach über die Checkbox auf der Zeile.
+  await page.getByTestId("unit-form-submit").click();
+  const row = page.locator('[data-testid^="unit-column-row-"]', { hasText: "E2E Entwurf-Einheit" });
+  await expect(row).toBeVisible();
+
+  // Eigener, anonymer Browser-Context pro Sichtbarkeits-Prüfung — Klicken im
+  // Picker speichert selbst einen Gast-Standort (localStorage), ein zweiter
+  // Besuch im selben Context würde daher nicht mehr im Picker starten.
+  async function unitVisibleAnonymously(): Promise<boolean> {
+    const anonContext = await browser.newContext();
+    const anonPage = await anonContext.newPage();
+    await anonPage.goto("/");
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Österreich" }).click();
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Niederösterreich" }).click();
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Tulln" }).click();
+    await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Klosterneuburg" }).click();
+    const count = await anonPage
+      .locator('[data-testid^="unit-column-select-"]', { hasText: "E2E Entwurf-Einheit" })
+      .count();
+    await anonContext.close();
+    return count > 0;
+  }
+
+  expect(await unitVisibleAnonymously()).toBe(false);
+
+  // Über die Checkbox direkt auf der Zeile freigeben — jetzt erscheint sie
+  // auch öffentlich.
+  const publishCheckbox = row.getByTestId(/^unit-column-published-/);
+  await expect(publishCheckbox).not.toBeChecked();
+  await publishCheckbox.click();
+  await expect(publishCheckbox).toBeChecked();
+
+  expect(await unitVisibleAnonymously()).toBe(true);
+
+  // Cleanup.
+  await row.getByTestId(/^unit-column-delete-/).click();
+  await page.getByTestId("unit-confirm-delete").click();
+  await expect(row).not.toBeVisible();
+});
+
+test("eine nicht freigegebene übergeordnete Einheit versteckt auch ihre bereits freigegebenen Kind-Einheiten öffentlich (Kaskade)", async ({
+  page,
+  browser,
+}) => {
+  const { email, password: superAdminPassword } = getSuperAdminCredentials();
+  await loginWithCredentials(page, email, superAdminPassword);
+  await page.goto("/admin/administrative-units");
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
+  await page.getByTestId("unit-breadcrumb-state").click();
+  await page.locator('[data-testid^="unit-option-"]', { hasText: "Niederösterreich" }).click();
+  await page.getByTestId("unit-breadcrumb-district").click();
+  await page.locator('[data-testid^="unit-option-"]', { hasText: "Tulln" }).click();
+  await page.getByTestId("unit-view-toggle-columns").click();
+
+  // Nicht freigegebene Katastralgemeinde anlegen ...
+  const addColumnButton = page.locator('[data-testid^="unit-column-add-cadastral_municipality-"]');
+  await addColumnButton.click();
+  await page.getByTestId(/^unit-column-add-unit-cadastral_municipality-/).click();
+  await page.getByTestId("unit-form-name").fill("E2E Entwurf-Katastralgemeinde");
+  await page.getByTestId("unit-form-code").fill("9997");
+  await page.getByTestId("unit-form-submit").click();
+  const parentRow = page.locator('[data-testid^="unit-column-row-"]', { hasText: "E2E Entwurf-Katastralgemeinde" });
+  await expect(parentRow).toBeVisible();
+
+  // ... und darunter ein FREIGEGEBENES Gebiet — die Spalte für Gebiete
+  // erscheint erst, wenn die Katastralgemeinde ausgewählt ist. Die Spalte
+  // ist zu diesem Zeitpunkt noch leer (keine Geschwister), "+ Neu anlegen"
+  // ist dort daher ein direkter Button statt eines 2-Punkte-Menüs (siehe
+  // administrative-unit-columns-view.tsx: das Menü erscheint erst ab einer
+  // bestehenden Geschwister-Einheit).
+  await page.locator('[data-testid^="unit-column-select-"]', { hasText: "E2E Entwurf-Katastralgemeinde" }).click();
+  await page.locator('[data-testid^="unit-column-add-area-"]').click();
+  await page.getByTestId("unit-form-name").fill("E2E Freigegebenes Gebiet");
+  await page.getByTestId("unit-form-code").fill("Z");
+  await page.getByTestId("unit-form-submit").click();
+  const childRow = page.locator('[data-testid^="unit-column-row-"]', { hasText: "E2E Freigegebenes Gebiet" });
+  await expect(childRow).toBeVisible();
+  // Nach dem Anlegen (Entwurf-Default) über die Checkbox freigeben — trotz
+  // eigener Freigabe bleibt es wegen des unveröffentlichten Vorfahren
+  // öffentlich unerreichbar (siehe Prüfung unten).
+  const childPublishCheckbox = childRow.getByTestId(/^unit-column-published-/);
+  await childPublishCheckbox.click();
+  await expect(childPublishCheckbox).toBeChecked();
+
+  // Öffentlich: die Katastralgemeinde-Spalte unter Klosterneuburg zeigt den
+  // Entwurf nicht — und damit ist das freigegebene Gebiet darunter (dessen
+  // eigenes Häkchen gesetzt ist!) über die Klick-Navigation gar nicht erst
+  // erreichbar.
+  const anonContext = await browser.newContext();
+  const anonPage = await anonContext.newPage();
+  await anonPage.goto("/");
+  await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Österreich" }).click();
+  await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Niederösterreich" }).click();
+  await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Tulln" }).click();
+  await anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "Klosterneuburg" }).click();
+  await expect(
+    anonPage.locator('[data-testid^="unit-column-select-"]', { hasText: "E2E Entwurf-Katastralgemeinde" })
+  ).toHaveCount(0);
+  await anonContext.close();
+
+  // Cleanup (Löschen der Katastralgemeinde nimmt das Gebiet per ON DELETE
+  // CASCADE mit).
+  await parentRow.getByTestId(/^unit-column-delete-/).click();
+  await page.getByTestId("unit-confirm-delete").click();
+  await expect(parentRow).not.toBeVisible();
+});
+
+test("die Freigabe-Checkbox in der Breadcrumb-Ansicht toggelt nur das Häkchen — kein Navigieren, Dropdown bleibt offen", async ({
+  page,
+}) => {
+  const { email, password: superAdminPassword } = getSuperAdminCredentials();
+  await loginWithCredentials(page, email, superAdminPassword);
+  await page.goto("/admin/administrative-units");
+  await page.getByTestId("unit-view-toggle-columns").click();
+
+  // Neuen Bezirk unter Niederösterreich anlegen — wird durch das Anlegen
+  // automatisch zur aktiven Auswahl (Standardpfad-Ersetzung), taucht daher
+  // gleich als aktives Breadcrumb-Segment auf.
+  await page.locator('[data-testid^="unit-column-select-"]', { hasText: "Niederösterreich" }).click();
+  await page.locator('[data-testid^="unit-column-add-district-"]').click();
+  await page.getByTestId(/^unit-column-add-unit-district-/).click();
+  await page.getByTestId("unit-form-name").fill("E2E Breadcrumb-Checkbox-Test");
+  await page.getByTestId("unit-form-code").fill("9994");
+  await page.getByTestId("unit-form-submit").click();
+  await expect(
+    page.locator('[data-testid^="unit-column-select-"]', { hasText: "E2E Breadcrumb-Checkbox-Test" })
+  ).toBeVisible();
+
+  await page.getByTestId("unit-view-toggle-breadcrumb").click();
+  await expect(page.getByTestId("unit-breadcrumb-district")).toContainText("E2E Breadcrumb-Checkbox-Test");
+  await page.getByTestId("unit-breadcrumb-district").click();
+
+  const siblingItem = page.locator('[data-testid^="unit-option-"]', { hasText: "E2E Breadcrumb-Checkbox-Test" });
+  await expect(siblingItem).toBeVisible();
+  const publishCheckbox = siblingItem.getByTestId(/^unit-breadcrumb-published-/);
+  await expect(publishCheckbox).not.toBeChecked();
+  await publishCheckbox.click();
+
+  // Dropdown bleibt offen, die Zeile selbst bleibt sichtbar (kein Schließen
+  // durch den Checkbox-Klick) und die Breadcrumb-Auswahl hat sich nicht
+  // geändert (kein Navigieren ausgelöst).
+  await expect(siblingItem).toBeVisible();
+  await expect(publishCheckbox).toBeChecked();
+  await expect(page.getByTestId("unit-breadcrumb-district")).toContainText("E2E Breadcrumb-Checkbox-Test");
+
+  // Cleanup.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("unit-view-toggle-columns").click();
+  const row = page.locator('[data-testid^="unit-column-row-"]', { hasText: "E2E Breadcrumb-Checkbox-Test" });
+  await row.getByTestId(/^unit-column-delete-/).click();
+  await page.getByTestId("unit-confirm-delete").click();
+  await expect(row).not.toBeVisible();
+});

@@ -1,10 +1,11 @@
 import { notFound, redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { administrativeUnits, regions } from "@/db/schema";
 import { setPersonalSetting } from "@/app/settings/actions";
 import { PersistGuestStandortAndRedirect } from "@/components/persist-guest-standort-and-redirect";
+import { filterPublishedUnits } from "@/lib/administrative-units";
 import type { StandortRef } from "@/lib/standort";
 
 const SETTING_KEY = "default_administrative_unit";
@@ -34,19 +35,32 @@ export default async function AdministrativeUnitDeepLinkPage({
     notFound();
   }
 
-  const [unit] = await db
-    .select({ id: administrativeUnits.id })
-    .from(administrativeUnits)
-    .where(eq(administrativeUnits.id, unitId))
-    .limit(1);
+  // Kaskaden-Check: eine nicht freigegebene Einheit blockiert auch ihren
+  // Unterbaum, daher genügt kein Einzelzeilen-Lookup — dieselbe Logik wie
+  // im öffentlichen Picker (filterPublishedUnits), damit beide Wege exakt
+  // dasselbe Ergebnis liefern. Tabelle ist klein, ein Voll-Scan unkritisch.
+  const allUnits = await db
+    .select({
+      id: administrativeUnits.id,
+      parentId: administrativeUnits.parentId,
+      published: administrativeUnits.published,
+    })
+    .from(administrativeUnits);
+  const unit = filterPublishedUnits(allUnits).find((candidate) => candidate.id === unitId);
 
   let standort: StandortRef | null = null;
   if (unit) {
     standort = { type: "unit", id: unit.id };
   } else {
     // Kein Treffer in administrative_units — dieselbe id könnte trotzdem
-    // eine Region sein.
-    const [region] = await db.select({ id: regions.id }).from(regions).where(eq(regions.id, unitId)).limit(1);
+    // eine Region sein. Nicht freigegebene Regionen sind über den Deep-Link
+    // genauso wenig erreichbar wie über den öffentlichen Picker (published
+    // = true), daher 404 statt Standort-Übernahme.
+    const [region] = await db
+      .select({ id: regions.id })
+      .from(regions)
+      .where(and(eq(regions.id, unitId), eq(regions.published, true)))
+      .limit(1);
     if (region) standort = { type: "region", id: region.id };
   }
 

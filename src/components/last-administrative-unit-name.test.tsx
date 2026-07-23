@@ -16,6 +16,7 @@ const leaf: AdministrativeUnit = {
   name: "Niederösterreich",
   shortName: null,
   color: null,
+  published: true,
 };
 const units = [leaf];
 
@@ -26,6 +27,7 @@ const wachau: Region = {
   color: null,
   parentId: null,
   homeLevel: "federal",
+  published: true,
 };
 const regions = [wachau];
 

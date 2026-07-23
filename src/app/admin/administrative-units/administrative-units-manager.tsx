@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Columns3, Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import {
   ADMINISTRATIVE_LEVELS,
   getChildLevel,
   groupByParent,
+  filterPublishedUnits,
   type AdministrativeLevel,
   type AdministrativeUnit,
 } from "@/lib/administrative-units";
@@ -15,7 +16,9 @@ import { groupRegionsByHome, type Region, type RegionAdministrativeUnitLink } fr
 import { AdministrativeUnitBreadcrumbView } from "@/components/administrative-unit-breadcrumb-view";
 import { AdministrativeUnitColumnsView } from "@/components/administrative-unit-columns-view";
 import { AdministrativeUnitFormDialog, DeleteUnitDialog } from "./unit-dialogs";
+import { setAdministrativeUnitPublished } from "./actions";
 import { RegionFormDialog, DeleteRegionDialog, CreateColumnRegionDialog } from "./region-dialogs";
+import { setRegionPublished } from "./region-actions";
 import type { FormState, ColumnRegionsTarget, EditRegionTarget } from "./types";
 
 function firstLeafPath(startUnit: AdministrativeUnit, byParent: Map<string | null, AdministrativeUnit[]>): string[] {
@@ -61,6 +64,26 @@ export function AdministrativeUnitsManager({
     }
     return map;
   }, [regionLinks]);
+  // Für die gedämpfte Darstellung nicht (mehr) öffentlich erreichbarer
+  // Zeilen: kaskadiert berechnet (filterPublishedUnits, dieselbe Logik wie
+  // beim öffentlichen Picker) statt nur das eigene published-Flag zu prüfen
+  // — eine Einheit mit gesetztem Häkchen, aber unveröffentlichtem Vorfahren,
+  // gilt hier ebenfalls als nicht sichtbar. Eine Region gilt nur als
+  // sichtbar, wenn sie selbst freigegeben ist UND mindestens eine ihrer
+  // verknüpften Einheiten sichtbar ist (sonst würde sie öffentlich ohnehin
+  // nirgends auftauchen, siehe groupRegionsByParent).
+  const visibleUnitIds = useMemo(() => new Set(filterPublishedUnits(units).map((unit) => unit.id)), [units]);
+  const visibleRegionIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const region of regions) {
+      if (!region.published) continue;
+      const hasVisibleLink = regionLinks.some(
+        (link) => link.regionId === region.id && visibleUnitIds.has(link.administrativeUnitId)
+      );
+      if (hasVisibleLink) set.add(region.id);
+    }
+    return set;
+  }, [regions, regionLinks, visibleUnitIds]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("columns");
   const [path, setPath] = useState<string[]>(() => {
@@ -72,6 +95,7 @@ export function AdministrativeUnitsManager({
   const [editRegionTarget, setEditRegionTarget] = useState<EditRegionTarget | null>(null);
   const [deleteRegionTarget, setDeleteRegionTarget] = useState<Region | null>(null);
   const [columnRegionsTarget, setColumnRegionsTarget] = useState<ColumnRegionsTarget | null>(null);
+  const [, startTogglePublished] = useTransition();
 
   const pathUnits = path.map((id) => byId.get(id)).filter((unit): unit is AdministrativeUnit => Boolean(unit));
   const deepest = pathUnits[pathUnits.length - 1];
@@ -96,6 +120,28 @@ export function AdministrativeUnitsManager({
 
   function openCreateForm(parentId: string | null, level: AdministrativeLevel, replaceIndex: number) {
     setFormState({ mode: "create", parentId, level, replaceIndex });
+  }
+
+  function handleToggleUnitPublished(unit: AdministrativeUnit, published: boolean) {
+    startTogglePublished(async () => {
+      const result = await setAdministrativeUnitPublished(unit.id, published);
+      if (!result.success) {
+        alert(result.error ?? "Änderung fehlgeschlagen.");
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function handleToggleRegionPublished(region: Region, published: boolean) {
+    startTogglePublished(async () => {
+      const result = await setRegionPublished(region.id, published);
+      if (!result.success) {
+        alert(result.error ?? "Änderung fehlgeschlagen.");
+        return;
+      }
+      router.refresh();
+    });
   }
 
   function openColumnRegions(
@@ -170,6 +216,10 @@ export function AdministrativeUnitsManager({
           onAddChild={openCreateForm}
           regionsByParentId={regionsByHomeParentId}
           onCreateRegion={openColumnRegions}
+          visibleUnitIds={visibleUnitIds}
+          visibleRegionIds={visibleRegionIds}
+          onToggleUnitPublished={handleToggleUnitPublished}
+          onToggleRegionPublished={handleToggleRegionPublished}
         />
       ) : (
         <AdministrativeUnitColumnsView
@@ -185,6 +235,10 @@ export function AdministrativeUnitsManager({
           }
           onDeleteRegion={(region) => setDeleteRegionTarget(region)}
           onCreateRegion={openColumnRegions}
+          visibleUnitIds={visibleUnitIds}
+          visibleRegionIds={visibleRegionIds}
+          onToggleUnitPublished={handleToggleUnitPublished}
+          onToggleRegionPublished={handleToggleRegionPublished}
         />
       )}
 

@@ -36,6 +36,10 @@ export interface AdministrativeUnit {
   name: string;
   shortName: string | null;
   color: string | null;
+  /** Bund-Ebene ist immer true (serverseitig erzwungen). Nicht freigegebene
+   * Einheiten UND ihr gesamter Unterbaum sind öffentlich unsichtbar — siehe
+   * filterPublishedUnits. */
+  published: boolean;
 }
 
 export function groupByParent(units: AdministrativeUnit[]): Map<string | null, AdministrativeUnit[]> {
@@ -62,4 +66,36 @@ export function pathToRoot(unitId: string, byId: Map<string, AdministrativeUnit>
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   return path;
+}
+
+/**
+ * Kaskadierende Freigabe-Filterung für die öffentliche Anzeige: eine Einheit
+ * bleibt nur erhalten, wenn sie SELBST und ihre GESAMTE Vorfahrenkette
+ * published sind — eine nicht freigegebene Einheit blockiert damit auch
+ * ihren gesamten (ggf. selbst freigegebenen) Unterbaum, analog dazu, dass
+ * man im Picker ja ohnehin nicht an ihr vorbeiklicken kann. Einzige Stelle
+ * mit dieser Kaskaden-Logik — pathToRoot/groupByParent/groupRegionsByParent
+ * bekommen danach nur noch eine bereits bereinigte Liste und brauchen keine
+ * eigene Behandlung von Lücken im Baum (sie tolerieren das ohnehin, siehe
+ * pathToRoot oben, aber nur unter der Annahme, dass fehlende Knoten immer
+ * einen kompletten Unterbaum betreffen, nie einen Knoten mittendrin — genau
+ * das garantiert diese Funktion).
+ *
+ * Generisch über T statt fest auf AdministrativeUnit: der Deep-Link-Resolver
+ * ([unitId]/page.tsx) braucht für denselben Kaskaden-Check nur id/parentId/
+ * published, nicht den vollen Datensatz.
+ */
+export function filterPublishedUnits<T extends Pick<AdministrativeUnit, "id" | "parentId" | "published">>(
+  units: T[]
+): T[] {
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+
+  function isVisible(unit: T): boolean {
+    if (!unit.published) return false;
+    if (unit.parentId === null) return true;
+    const parent = byId.get(unit.parentId);
+    return parent ? isVisible(parent) : false;
+  }
+
+  return units.filter(isVisible);
 }

@@ -1,9 +1,10 @@
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { administrativeUnits, regions as regionsTable, regionAdministrativeUnits } from "@/db/schema";
 import { getPersonalSettings } from "@/lib/settings-service";
 import { parseStandortValue, type StandortRef } from "@/lib/standort";
 import type { Role } from "@/lib/authorization";
-import type { AdministrativeUnit } from "@/lib/administrative-units";
+import { filterPublishedUnits, type AdministrativeUnit } from "@/lib/administrative-units";
 import type { Region, RegionAdministrativeUnitLink } from "@/lib/regions";
 
 const SETTING_KEY = "default_administrative_unit";
@@ -28,7 +29,7 @@ export async function getStandortPickerData(
   regionLinks: RegionAdministrativeUnitLink[];
   initialStandort: StandortRef | null;
 }> {
-  const [units, regionRows, linkRows] = await Promise.all([
+  const [rawUnits, regionRows, linkRows] = await Promise.all([
     db
       .select({
         id: administrativeUnits.id,
@@ -38,6 +39,7 @@ export async function getStandortPickerData(
         name: administrativeUnits.name,
         shortName: administrativeUnits.shortName,
         color: administrativeUnits.color,
+        published: administrativeUnits.published,
       })
       .from(administrativeUnits)
       .orderBy(administrativeUnits.name),
@@ -49,8 +51,10 @@ export async function getStandortPickerData(
         color: regionsTable.color,
         parentId: regionsTable.parentId,
         homeLevel: regionsTable.homeLevel,
+        published: regionsTable.published,
       })
       .from(regionsTable)
+      .where(eq(regionsTable.published, true))
       .orderBy(regionsTable.name),
     db
       .select({
@@ -62,6 +66,12 @@ export async function getStandortPickerData(
 
   const initialStandort =
     userId && role ? parseStandortValue((await getPersonalSettings(userId, role))[SETTING_KEY]) : null;
+
+  // Kaskadierend gefiltert: eine nicht freigegebene Einheit blockiert auch
+  // ihren gesamten Unterbaum, siehe filterPublishedUnits. Regionen, die nur
+  // an (dadurch entfernte) Einheiten hängen, verschwinden danach von selbst
+  // aus groupRegionsByParent (bestehende unitById.has-Prüfung dort).
+  const units = filterPublishedUnits(rawUnits);
 
   return { units, regions: regionRows, regionLinks: linkRows, initialStandort };
 }

@@ -68,6 +68,10 @@ export async function createRegion(
           name: input.name.trim(),
           description: input.description?.trim() || null,
           color: input.color?.trim() || null,
+          // Entwurf ist der Default bei Neuanlage — Freigabe passiert danach
+          // über die Checkbox auf der Zeile (setRegionPublished), nicht mehr
+          // im Anlegen-Dialog.
+          published: false,
           parentId: home.parentId,
           homeLevel: home.level,
         })
@@ -124,6 +128,28 @@ export async function updateRegion(id: string, input: RegionInput): Promise<Regi
     }
     throw err;
   }
+}
+
+/**
+ * Direktes Umschalten der Freigabe über die Checkbox neben der Region in
+ * Spalten-/Breadcrumb-Ansicht — bewusst eine eigene, schlanke Action statt
+ * über updateRegion, damit ein Klick auf die Checkbox nicht den gesamten
+ * Bearbeiten-Dialog voraussetzt.
+ */
+export async function setRegionPublished(id: string, published: boolean): Promise<RegionActionResult> {
+  const session = await auth();
+
+  if (!session?.user) {
+    return { success: false, error: "Nicht angemeldet." };
+  }
+  if (!canManageRegions(session.user.role)) {
+    return { success: false, error: "Nur der super_admin darf Regionen verwalten." };
+  }
+
+  await db.update(regions).set({ published, updatedAt: new Date() }).where(eq(regions.id, id));
+
+  revalidatePath("/admin/administrative-units");
+  return { success: true, id };
 }
 
 export async function deleteRegion(id: string): Promise<RegionActionResult> {

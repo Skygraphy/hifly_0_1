@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Users } from "lucide-react";
+import Link from "next/link";
+import { Users, MapPinned } from "lucide-react";
 import { auth } from "@/auth";
 import { canManageUsers } from "@/lib/authorization";
 import { db } from "@/db";
@@ -13,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { RoleBadge } from "@/components/role-badge";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
@@ -105,6 +107,15 @@ export default async function AdminUsersPage() {
                             <RoleActionButton userId={user.id} desiredRole="admin" label="zu admin machen" />
                           )}
                           <BlockActionButton userId={user.id} blocked={user.isBlocked} />
+                          {user.role === "admin" && (
+                            <Link
+                              href={`/admin/users/${user.id}/locations`}
+                              className={buttonVariants({ variant: "outline", size: "sm" })}
+                            >
+                              <MapPinned className="size-3.5" />
+                              Standorte verwalten
+                            </Link>
+                          )}
                           <DeleteActionButton userId={user.id} email={user.email} />
                         </div>
                       )}

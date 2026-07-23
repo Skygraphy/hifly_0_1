@@ -31,9 +31,8 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/db", () => ({ db: dbMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { createAdministrativeUnit, updateAdministrativeUnit, deleteAdministrativeUnit } = await import(
-  "./actions"
-);
+const { createAdministrativeUnit, updateAdministrativeUnit, deleteAdministrativeUnit, setAdministrativeUnitPublished } =
+  await import("./actions");
 
 const validInput = { code: "1701", name: "Gugging", shortName: null, color: null };
 
@@ -91,8 +90,22 @@ describe("createAdministrativeUnit", () => {
     expect(result.success).toBe(true);
     expect(result.id).toBe("new-id");
     expect(dbMock.valuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({ parentId: "parent-1", level: "cadastral_municipality", code: "1701" })
+      expect.objectContaining({
+        parentId: "parent-1",
+        level: "cadastral_municipality",
+        code: "1701",
+        published: false,
+      })
     );
+  });
+
+  it("setzt published=true auf Bund-Ebene, false auf allen anderen Ebenen — Entwurf ist der Default", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+
+    const result = await createAdministrativeUnit(null, "federal", validInput);
+
+    expect(result.success).toBe(true);
+    expect(dbMock.valuesMock).toHaveBeenCalledWith(expect.objectContaining({ published: true }));
   });
 });
 
@@ -137,6 +150,50 @@ describe("updateAdministrativeUnit", () => {
 
     expect(result.success).toBe(true);
     expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ name: "Neuer Name" }));
+  });
+});
+
+describe("setAdministrativeUnitPublished", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.updateWhereMock.mockResolvedValue(undefined);
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist", async () => {
+    authMock.mockResolvedValue(null);
+
+    const result = await setAdministrativeUnitPublished("unit-1", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn ein plain admin es versucht", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+
+    const result = await setAdministrativeUnitPublished("unit-1", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("erlaubt dem super_admin, die Freigabe umzuschalten", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+
+    const result = await setAdministrativeUnitPublished("unit-1", true);
+
+    expect(result.success).toBe(true);
+    expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ published: true }));
+  });
+
+  it("übersetzt eine Check-Constraint-Verletzung (Bund-Ebene als Entwurf) in eine verständliche Meldung", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+    dbMock.updateWhereMock.mockRejectedValue({ code: "23514" });
+
+    const result = await setAdministrativeUnitPublished("unit-1", false);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Bund-Ebene/);
   });
 });
 

@@ -17,6 +17,16 @@ import {
 } from "@/lib/administrative-units";
 import type { Region } from "@/lib/regions";
 
+// Native <input type="checkbox">: accent-color übernimmt die Markenfarbe
+// statt der browsereigenen (meist blauen) Standardfarbe im angehakten
+// Zustand — funktionsübergreifend unterstützt, ohne einen eigenen
+// Checkbox-Baustein bauen zu müssen.
+const PUBLISH_CHECKBOX_CLASSNAME = "size-3.5 shrink-0 cursor-pointer accent-primary";
+// Öffentlich nicht (mehr) erreichbare Zeilen bewusst nicht nur gedämpft
+// (text-muted-foreground), sondern leicht ins Rötliche — liest sich auf
+// einen Blick als "ungültig/nicht sichtbar" statt nur als "inaktiv".
+const NOT_VISIBLE_CLASSNAME = "text-destructive/70";
+
 export function AdministrativeUnitColumnsView({
   pathUnits,
   byParent,
@@ -26,9 +36,19 @@ export function AdministrativeUnitColumnsView({
   onDelete,
   regionsByParentId,
   onSelectRegion,
+  selectedRegionId,
   onEditRegion,
   onDeleteRegion,
   onCreateRegion,
+  visibleUnitIds,
+  visibleRegionIds,
+  onToggleUnitPublished,
+  onToggleRegionPublished,
+  grantedUnitIds,
+  grantedRegionIds,
+  onToggleUnitGranted,
+  onToggleRegionGranted,
+  hideEmptyTrailingColumn,
 }: {
   pathUnits: AdministrativeUnit[];
   byParent: Map<string | null, AdministrativeUnit[]>;
@@ -43,6 +63,12 @@ export function AdministrativeUnitColumnsView({
    * Spalte, in der ihre verknüpfte(n) Einheit(en) selbst stehen würden. */
   regionsByParentId?: Map<string | null, Region[]>;
   onSelectRegion?: (regionId: string) => void;
+  /** Markiert eine Region mit demselben Häkchen-Symbol wie eine ausgewählte
+   * Einheit (siehe pathUnits/selectedId) — im öffentlichen Picker/Admin-
+   * Manager ungenutzt (dort wechselt die Ansicht bei Regionsauswahl
+   * komplett, siehe AdministrativeLevelWidget), aber im Standort-Picker
+   * fürs Bild-Upload nötig, wo der Dialog nach der Auswahl offen bleibt. */
+  selectedRegionId?: string;
   /** Admin-Gegenstück zu onSelectRegion: Bearbeiten/Löschen der Region
    * selbst (Name/Beschreibung/Farbe UND Verknüpfung, bzw. komplettes
    * Löschen), nicht die öffentliche Standort-Auswahl. candidateUnits/level
@@ -63,11 +89,51 @@ export function AdministrativeUnitColumnsView({
    * Geschwister-Einheiten (candidateUnits). Bestehende Regionen werden
    * stattdessen über onEditRegion verknüpft. */
   onCreateRegion?: (parentId: string | null, level: AdministrativeLevel, candidateUnits: AdministrativeUnit[]) => void;
+  /** Kaskadiert berechnete Mengen tatsächlich öffentlich erreichbarer
+   * Einheiten/Regionen (siehe filterPublishedUnits) — nur für die gedämpfte
+   * Darstellung nicht (mehr) sichtbarer Zeilen, unabhängig vom eigenen
+   * published-Flag der Checkbox (die zeigt immer nur den eigenen Wert). */
+  visibleUnitIds?: Set<string>;
+  visibleRegionIds?: Set<string>;
+  /** Admin-Checkbox neben jeder Zeile: schaltet AUSSCHLIESSLICH das eigene
+   * published-Flag dieser einen Einheit/Region um (kein Bulk-Toggle auf
+   * Kinder) — ersetzt den früheren Dialog-Switch. */
+  onToggleUnitPublished?: (unit: AdministrativeUnit, published: boolean) => void;
+  onToggleRegionPublished?: (region: Region, published: boolean) => void;
+  /** Freigabe-Verwaltung (super_admin, siehe admin_location_grants in
+   * src/db/schema.ts) — exakt dasselbe Muster wie
+   * onToggleUnitPublished/onToggleRegionPublished, nur mit eigener Bedeutung
+   * ("für den Bild-Upload freigegeben" statt "öffentlich sichtbar") und
+   * eigenem Label. Kein Kaskadieren auf Unterebenen — schaltet ausschließlich
+   * die Freigabe GENAU dieser einen Zeile um. */
+  grantedUnitIds?: Set<string>;
+  grantedRegionIds?: Set<string>;
+  onToggleUnitGranted?: (unit: AdministrativeUnit, granted: boolean) => void;
+  onToggleRegionGranted?: (region: Region, granted: boolean) => void;
+  /** Unterdrückt die sonst immer angehängte, leere Vorschau-Spalte der
+   * nächsten Ebene, wenn dort weder Einheiten noch Regionen noch eine
+   * Neuanlage-Möglichkeit (onCreateSibling) vorhanden wären — im
+   * Standort-Picker (siehe location-picker-dialog.tsx) ist der Baum auf
+   * Freigaben zugeschnitten, eine leere "Katastralgemeinde"-Spalte nach
+   * einer bereits gewählten, kinderlosen Gemeinde wäre dort reine
+   * Verwirrung. In den übrigen (Admin-/Public-)Ansichten weiterhin
+   * standardmäßig sichtbar (dort zeigt "Keine Einträge" tatsächlich an,
+   * dass diese Ebene leer ist bzw. bietet "+ Neu anlegen" an). */
+  hideEmptyTrailingColumn?: boolean;
 }) {
   // Eine Spalte pro erreichter Ebene, plus eine trailing Spalte für die
   // Kinder der tiefsten Auswahl (nur solange nicht schon "area" erreicht ist).
-  const columnCount =
+  const rawColumnCount =
     pathUnits.length < ADMINISTRATIVE_LEVELS.length ? pathUnits.length + 1 : pathUnits.length;
+  const trailingParentId = pathUnits.length > 0 ? pathUnits[pathUnits.length - 1].id : null;
+  const trailingColumnIsEmpty =
+    rawColumnCount === pathUnits.length + 1 &&
+    (byParent.get(trailingParentId)?.length ?? 0) === 0 &&
+    (regionsByParentId?.get(trailingParentId)?.length ?? 0) === 0;
+  const columnCount =
+    hideEmptyTrailingColumn && !onCreateSibling && pathUnits.length > 0 && trailingColumnIsEmpty
+      ? rawColumnCount - 1
+      : rawColumnCount;
 
   return (
     <div
@@ -95,80 +161,142 @@ export function AdministrativeUnitColumnsView({
               {items.length === 0 && (
                 <p className="px-3 py-4 text-sm text-muted-foreground">Keine Einträge</p>
               )}
-              {items.map((item) => (
-                <div
-                  key={item.id}
-                  data-testid={`unit-column-row-${item.id}`}
-                  className={cn(
-                    "group flex items-center gap-1 px-1.5 py-1 text-sm",
-                    item.id === selectedId && "bg-accent"
-                  )}
-                >
-                  <button
-                    type="button"
-                    data-testid={`unit-column-select-${item.id}`}
-                    className="flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
-                    onClick={() => onSelect(index, item.id)}
+              {items.map((item) => {
+                // Eine Einheit und eine Region stehen für denselben
+                // StandortRef-Slot — sobald eine Region der aktuelle
+                // Kandidat ist (selectedRegionId gesetzt), darf keine
+                // Einheit mehr als "ausgewählt" markiert bleiben, auch
+                // nicht eine tiefer liegende, zuvor angeklickte (z.B.
+                // Klosterneuburg, während path noch dorthin zeigt).
+                const isUnitSelected = item.id === selectedId && !selectedRegionId;
+
+                return (
+                  <div
+                    key={item.id}
+                    data-testid={`unit-column-row-${item.id}`}
+                    className={cn(
+                      "group flex items-center gap-1 px-1.5 py-1 text-sm",
+                      isUnitSelected && "bg-accent"
+                    )}
                   >
-                    {item.name}
-                  </button>
-                  {item.id === selectedId && <Check className="size-3.5 shrink-0" />}
-                  {(onEdit || onDelete) && (
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                      {onEdit && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Bearbeiten"
-                          data-testid={`unit-column-edit-${item.id}`}
-                          onClick={() => onEdit(item)}
-                        >
-                          <Pencil className="size-3.5" />
-                        </Button>
+                    <button
+                      type="button"
+                      data-testid={`unit-column-select-${item.id}`}
+                      className={cn(
+                        "flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+                        visibleUnitIds && !visibleUnitIds.has(item.id) && NOT_VISIBLE_CLASSNAME
                       )}
-                      {onDelete && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Löschen"
-                          data-testid={`unit-column-delete-${item.id}`}
-                          onClick={() => onDelete(item)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {(onSelectRegion || onEditRegion || onDeleteRegion) &&
+                      onClick={() => onSelect(index, item.id)}
+                    >
+                      {item.name}
+                    </button>
+                    {isUnitSelected && <Check className="size-3.5 shrink-0" />}
+                    {onToggleUnitPublished && item.level !== "federal" && (
+                      <input
+                        type="checkbox"
+                        aria-label="Veröffentlicht"
+                        data-testid={`unit-column-published-${item.id}`}
+                        className={PUBLISH_CHECKBOX_CLASSNAME}
+                        checked={item.published}
+                        onChange={(event) => onToggleUnitPublished(item, event.target.checked)}
+                      />
+                    )}
+                    {onToggleUnitGranted && (
+                      <input
+                        type="checkbox"
+                        aria-label="Freigegeben"
+                        data-testid={`unit-column-granted-${item.id}`}
+                        className={PUBLISH_CHECKBOX_CLASSNAME}
+                        checked={grantedUnitIds?.has(item.id) ?? false}
+                        onChange={(event) => onToggleUnitGranted(item, event.target.checked)}
+                      />
+                    )}
+                    {(onEdit || onDelete) && (
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                        {onEdit && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Bearbeiten"
+                            data-testid={`unit-column-edit-${item.id}`}
+                            onClick={() => onEdit(item)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        )}
+                        {onDelete && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Löschen"
+                            data-testid={`unit-column-delete-${item.id}`}
+                            onClick={() => onDelete(item)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {(onSelectRegion || onEditRegion || onDeleteRegion || onToggleRegionPublished || onToggleRegionGranted) &&
                 (regionsByParentId?.get(parentId)?.length ?? 0) > 0 && (
                   <>
                     <div className="border-t px-3 py-2 text-xs font-medium text-muted-foreground">Gegend</div>
-                    {/* Diese Ansicht rendert nie, während eine Region der
-                        aktive Standort ist (siehe AdministrativeLevelWidget),
-                        daher keine "ausgewählt"-Markierung nötig. */}
                     {regionsByParentId!.get(parentId)!.map((region) => (
                       <div
                         key={region.id}
                         data-testid={`region-row-${region.id}`}
-                        className="group flex items-center gap-1 px-1.5 py-1 text-sm"
+                        className={cn(
+                          "group flex items-center gap-1 px-1.5 py-1 text-sm",
+                          region.id === selectedRegionId && "bg-accent"
+                        )}
                       >
                         {onSelectRegion ? (
                           <button
                             type="button"
                             data-testid={`region-option-${region.id}`}
-                            className="flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+                            className={cn(
+                              "flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+                              visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
+                            )}
                             onClick={() => onSelectRegion(region.id)}
                           >
                             {region.name}
                           </button>
                         ) : (
-                          <span className="flex-1 truncate px-1.5 py-1 cursor-default select-none">
+                          <span
+                            className={cn(
+                              "flex-1 truncate px-1.5 py-1 cursor-default select-none",
+                              visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
+                            )}
+                          >
                             {region.name}
                           </span>
+                        )}
+                        {region.id === selectedRegionId && <Check className="size-3.5 shrink-0" />}
+                        {onToggleRegionPublished && (
+                          <input
+                            type="checkbox"
+                            aria-label="Veröffentlicht"
+                            data-testid={`region-published-${region.id}`}
+                            className={PUBLISH_CHECKBOX_CLASSNAME}
+                            checked={region.published}
+                            onChange={(event) => onToggleRegionPublished(region, event.target.checked)}
+                          />
+                        )}
+                        {onToggleRegionGranted && (
+                          <input
+                            type="checkbox"
+                            aria-label="Freigegeben"
+                            data-testid={`region-granted-${region.id}`}
+                            className={PUBLISH_CHECKBOX_CLASSNAME}
+                            checked={grantedRegionIds?.has(region.id) ?? false}
+                            onChange={(event) => onToggleRegionGranted(region, event.target.checked)}
+                          />
                         )}
                         {(onEditRegion || onDeleteRegion) && (
                           <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">

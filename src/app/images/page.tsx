@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { AccountMenuSlot } from "@/components/account-menu-slot";
+import { AccountMenu } from "@/components/account-menu";
+import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
 import { LastAdministrativeUnitName } from "@/components/last-administrative-unit-name";
 import { getStandortPickerData } from "@/lib/standort-picker-data";
@@ -32,6 +35,12 @@ export default async function ImagesPage() {
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-background p-4">
       <BackLink href="/" label="Zurück zur Startseite" />
+      <AccountMenuSlot>
+        <div className="flex items-center gap-2">
+          <DisplaySettingsMenu user={session?.user ?? null} />
+          <AccountMenu user={session?.user ?? null} />
+        </div>
+      </AccountMenuSlot>
       <LastAdministrativeUnitName units={units} regions={regions} initialStandort={initialStandort} />
     </main>
   );

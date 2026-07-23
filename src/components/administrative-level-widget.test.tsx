@@ -21,6 +21,7 @@ const root: AdministrativeUnit = {
   name: "Österreich",
   shortName: null,
   color: null,
+  published: true,
 };
 const child: AdministrativeUnit = {
   id: "child",
@@ -30,6 +31,7 @@ const child: AdministrativeUnit = {
   name: "Niederösterreich",
   shortName: null,
   color: null,
+  published: true,
 };
 const grandchild: AdministrativeUnit = {
   id: "grandchild",
@@ -39,6 +41,7 @@ const grandchild: AdministrativeUnit = {
   name: "Tulln",
   shortName: null,
   color: null,
+  published: true,
 };
 const units = [root, child];
 const unitsWithGrandchild = [root, child, grandchild];
@@ -50,6 +53,7 @@ const wachau: Region = {
   color: null,
   parentId: null,
   homeLevel: "federal",
+  published: true,
 };
 const regions = [wachau];
 // wachau ist mit "root" (Österreich) verknüpft — erscheint dadurch in der

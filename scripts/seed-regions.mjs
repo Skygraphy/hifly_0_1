@@ -17,13 +17,13 @@ const client = new pg.Client({
   ssl: { rejectUnauthorized: false },
 });
 
-async function upsertRegion(client, { name, description = null, color = null, parentId, homeLevel }) {
+async function upsertRegion(client, { name, description = null, color = null, parentId, homeLevel, published = true }) {
   const { rows } = await client.query(
-    `INSERT INTO regions (name, description, color, parent_id, home_level) VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO regions (name, description, color, parent_id, home_level, published) VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (name) DO UPDATE SET
-       description = $2, color = $3, parent_id = $4, home_level = $5, updated_at = now()
+       description = $2, color = $3, parent_id = $4, home_level = $5, published = $6, updated_at = now()
      RETURNING id`,
-    [name, description, color, parentId, homeLevel]
+    [name, description, color, parentId, homeLevel, published]
   );
   return rows[0].id;
 }
@@ -67,6 +67,7 @@ try {
     description: "Gebirgsgruppe/Nationalpark über Salzburg, Tirol (Osttirol) und Kärnten hinweg.",
     parentId: oesterreichId,
     homeLevel: "state",
+    published: true,
   });
   const hoheTauernUnitIds = [];
   for (const name of ["Salzburg", "Tirol", "Kärnten"]) {
@@ -79,6 +80,7 @@ try {
     description: "Donautal/Weinbauregion über mehrere Bezirke in Niederösterreich hinweg.",
     parentId: niederoesterreichId,
     homeLevel: "district",
+    published: true,
   });
   const wachauUnitIds = [];
   for (const name of ["Krems-Land", "Melk"]) {

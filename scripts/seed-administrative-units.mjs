@@ -25,7 +25,7 @@ const client = new pg.Client({
 // NULL-Werte in einem Unique Index nie als Konflikt — ON CONFLICT würde den
 // Bund-Eintrag (parent_id IS NULL) bei jedem erneuten Lauf duplizieren statt
 // zu aktualisieren. IS NOT DISTINCT FROM behandelt NULL = NULL korrekt.
-async function upsertUnit(client, { parentId, level, code, name, shortName = null }) {
+async function upsertUnit(client, { parentId, level, code, name, shortName = null, published = true }) {
   const { rows: existing } = await client.query(
     "SELECT id FROM administrative_units WHERE parent_id IS NOT DISTINCT FROM $1 AND code = $2",
     [parentId, code]
@@ -33,15 +33,15 @@ async function upsertUnit(client, { parentId, level, code, name, shortName = nul
 
   if (existing.length > 0) {
     const { rows } = await client.query(
-      "UPDATE administrative_units SET name = $1, short_name = $2, updated_at = now() WHERE id = $3 RETURNING id",
-      [name, shortName, existing[0].id]
+      "UPDATE administrative_units SET name = $1, short_name = $2, published = $3, updated_at = now() WHERE id = $4 RETURNING id",
+      [name, shortName, published, existing[0].id]
     );
     return rows[0].id;
   }
 
   const { rows } = await client.query(
-    "INSERT INTO administrative_units (parent_id, level, code, name, short_name) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-    [parentId, level, code, name, shortName]
+    "INSERT INTO administrative_units (parent_id, level, code, name, short_name, published) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [parentId, level, code, name, shortName, published]
   );
   return rows[0].id;
 }

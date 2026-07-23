@@ -44,7 +44,9 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/db", () => ({ db: dbMock }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { createRegion, updateRegion, deleteRegion, setRegionUnitsWithinScope } = await import("./region-actions");
+const { createRegion, updateRegion, deleteRegion, setRegionUnitsWithinScope, setRegionPublished } = await import(
+  "./region-actions"
+);
 
 const validInput = { name: "Wachau", description: "Donautal", color: null };
 const validHome = { parentId: "parent-1", level: "district" as const };
@@ -119,6 +121,9 @@ describe("createRegion", () => {
 
     expect(result.success).toBe(true);
     expect(dbMock.insert).toHaveBeenCalledTimes(2);
+    // Entwurf ist der Default bei Neuanlage — Freigabe passiert danach über
+    // die Checkbox (setRegionPublished), nicht mehr beim Anlegen.
+    expect(dbMock.valuesMock).toHaveBeenNthCalledWith(1, expect.objectContaining({ published: false }));
     expect(dbMock.valuesMock).toHaveBeenNthCalledWith(2, [
       { regionId: "new-region-id", administrativeUnitId: "unit-a" },
       { regionId: "new-region-id", administrativeUnitId: "unit-b" },
@@ -167,6 +172,40 @@ describe("updateRegion", () => {
 
     expect(result.success).toBe(true);
     expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ name: "Neuer Name" }));
+  });
+});
+
+describe("setRegionPublished", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.updateWhereMock.mockResolvedValue(undefined);
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist", async () => {
+    authMock.mockResolvedValue(null);
+
+    const result = await setRegionPublished("region-1", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("lehnt ab, wenn ein plain admin es versucht", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+
+    const result = await setRegionPublished("region-1", true);
+
+    expect(result.success).toBe(false);
+    expect(dbMock.update).not.toHaveBeenCalled();
+  });
+
+  it("erlaubt dem super_admin, die Freigabe umzuschalten", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+
+    const result = await setRegionPublished("region-1", true);
+
+    expect(result.success).toBe(true);
+    expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ published: true }));
   });
 });
 

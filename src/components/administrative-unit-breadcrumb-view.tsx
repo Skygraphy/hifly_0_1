@@ -19,6 +19,40 @@ import {
 } from "@/lib/administrative-units";
 import type { Region } from "@/lib/regions";
 
+// Öffentlich nicht (mehr) erreichbare Zeilen bewusst nicht nur gedämpft
+// (text-muted-foreground), sondern leicht ins Rötliche — liest sich auf
+// einen Blick als "ungültig/nicht sichtbar" statt nur als "inaktiv".
+const NOT_VISIBLE_CLASSNAME = "text-destructive/70";
+
+/**
+ * Admin-Checkbox innerhalb eines DropdownMenuItem — stopPropagation auf dem
+ * Klick, damit das Häkchen weder die Item-eigene Navigation/Auswahl auslöst
+ * noch (als Nebeneffekt davon) das Menü schließt; toggelt ausschließlich das
+ * eigene published-Flag der Zeile. accent-color übernimmt die Markenfarbe
+ * statt der browsereigenen Standardfarbe im angehakten Zustand.
+ */
+function PublishCheckbox({
+  checked,
+  onToggle,
+  testId,
+}: {
+  checked: boolean;
+  onToggle: (published: boolean) => void;
+  testId: string;
+}) {
+  return (
+    <input
+      type="checkbox"
+      aria-label="Veröffentlicht"
+      data-testid={testId}
+      className="ml-auto size-3.5 shrink-0 cursor-pointer accent-primary"
+      checked={checked}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => onToggle(event.target.checked)}
+    />
+  );
+}
+
 export function AdministrativeUnitBreadcrumbView({
   pathUnits,
   byParent,
@@ -34,6 +68,10 @@ export function AdministrativeUnitBreadcrumbView({
   onSelectRegion,
   selectedRegion,
   onCreateRegion,
+  visibleUnitIds,
+  visibleRegionIds,
+  onToggleUnitPublished,
+  onToggleRegionPublished,
 }: {
   pathUnits: AdministrativeUnit[];
   byParent: Map<string | null, AdministrativeUnit[]>;
@@ -77,6 +115,16 @@ export function AdministrativeUnitBreadcrumbView({
    * Einheiten: nur das aktive Segment bekommt eigene Aktionen, nicht jede
    * einzelne Geschwister-Zeile in einem Dropdown). */
   onCreateRegion?: (parentId: string | null, level: AdministrativeLevel, candidateUnits: AdministrativeUnit[]) => void;
+  /** Kaskadiert berechnete Mengen tatsächlich öffentlich erreichbarer
+   * Einheiten/Regionen (siehe filterPublishedUnits) — nur für die gedämpfte
+   * Darstellung, unabhängig vom eigenen published-Flag der Checkbox. */
+  visibleUnitIds?: Set<string>;
+  visibleRegionIds?: Set<string>;
+  /** Admin-Checkbox neben jeder Zeile: schaltet AUSSCHLIESSLICH das eigene
+   * published-Flag dieser einen Einheit/Region um (kein Bulk-Toggle auf
+   * Kinder) — ersetzt den früheren Dialog-Switch. */
+  onToggleUnitPublished?: (unit: AdministrativeUnit, published: boolean) => void;
+  onToggleRegionPublished?: (region: Region, published: boolean) => void;
 }) {
   const hasAdminActions = Boolean(onCreateSibling || onEdit || onDelete || onCreateRegion);
   const deepenChildren = nextChildLevel ? byParent.get(deepest?.id ?? null) ?? [] : [];
@@ -111,10 +159,18 @@ export function AdministrativeUnitBreadcrumbView({
                     <DropdownMenuItem
                       key={sibling.id}
                       data-testid={`unit-option-${sibling.id}`}
+                      className={cn(visibleUnitIds && !visibleUnitIds.has(sibling.id) && NOT_VISIBLE_CLASSNAME)}
                       onClick={() => onSelectSibling(index, sibling.id)}
                     >
                       {sibling.name}
                       {sibling.id === unit.id && <Check className="ml-auto size-4" />}
+                      {onToggleUnitPublished && sibling.level !== "federal" && (
+                        <PublishCheckbox
+                          checked={sibling.published}
+                          onToggle={(published) => onToggleUnitPublished(sibling, published)}
+                          testId={`unit-breadcrumb-published-${sibling.id}`}
+                        />
+                      )}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuGroup>
@@ -129,9 +185,19 @@ export function AdministrativeUnitBreadcrumbView({
                         <DropdownMenuItem
                           key={region.id}
                           data-testid={`region-option-${region.id}`}
+                          className={cn(
+                            visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
+                          )}
                           onClick={onSelectRegion ? () => onSelectRegion(region.id) : undefined}
                         >
                           {region.name}
+                          {onToggleRegionPublished && (
+                            <PublishCheckbox
+                              checked={region.published}
+                              onToggle={(published) => onToggleRegionPublished(region, published)}
+                              testId={`region-breadcrumb-published-${region.id}`}
+                            />
+                          )}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuGroup>
@@ -209,9 +275,17 @@ export function AdministrativeUnitBreadcrumbView({
                       <DropdownMenuItem
                         key={child.id}
                         data-testid={`unit-option-${child.id}`}
+                        className={cn(visibleUnitIds && !visibleUnitIds.has(child.id) && NOT_VISIBLE_CLASSNAME)}
                         onClick={() => onSelectChild?.(child.id)}
                       >
                         {child.name}
+                        {onToggleUnitPublished && child.level !== "federal" && (
+                          <PublishCheckbox
+                            checked={child.published}
+                            onToggle={(published) => onToggleUnitPublished(child, published)}
+                            testId={`unit-breadcrumb-published-${child.id}`}
+                          />
+                        )}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuGroup>
@@ -228,10 +302,20 @@ export function AdministrativeUnitBreadcrumbView({
                       <DropdownMenuItem
                         key={region.id}
                         data-testid={`region-option-${region.id}`}
+                        className={cn(
+                          visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
+                        )}
                         onClick={() => onSelectRegion?.(region.id)}
                       >
                         {region.name}
                         {region.id === selectedRegion.id && <Check className="ml-auto size-4" />}
+                        {onToggleRegionPublished && (
+                          <PublishCheckbox
+                            checked={region.published}
+                            onToggle={(published) => onToggleRegionPublished(region, published)}
+                            testId={`region-breadcrumb-published-${region.id}`}
+                          />
+                        )}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuGroup>
@@ -264,9 +348,17 @@ export function AdministrativeUnitBreadcrumbView({
                     <DropdownMenuItem
                       key={child.id}
                       data-testid={`unit-option-${child.id}`}
+                      className={cn(visibleUnitIds && !visibleUnitIds.has(child.id) && NOT_VISIBLE_CLASSNAME)}
                       onClick={() => onSelectChild(child.id)}
                     >
                       {child.name}
+                      {onToggleUnitPublished && child.level !== "federal" && (
+                        <PublishCheckbox
+                          checked={child.published}
+                          onToggle={(published) => onToggleUnitPublished(child, published)}
+                          testId={`unit-breadcrumb-published-${child.id}`}
+                        />
+                      )}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuGroup>
@@ -281,9 +373,19 @@ export function AdministrativeUnitBreadcrumbView({
                         <DropdownMenuItem
                           key={region.id}
                           data-testid={`region-option-${region.id}`}
+                          className={cn(
+                            visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
+                          )}
                           onClick={onSelectRegion ? () => onSelectRegion(region.id) : undefined}
                         >
                           {region.name}
+                          {onToggleRegionPublished && (
+                            <PublishCheckbox
+                              checked={region.published}
+                              onToggle={(published) => onToggleRegionPublished(region, published)}
+                              testId={`region-breadcrumb-published-${region.id}`}
+                            />
+                          )}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuGroup>

@@ -16,16 +16,21 @@ vi.mock("next/navigation", () => ({
 }));
 
 const { authMock, selectResultMock, selectMock, setPersonalSettingMock } = vi.hoisted(() => {
-  // Jeder Aufruf von db.select(...) baut eine frische Kette (unit-Lookup,
-  // ggf. gefolgt vom region-Lookup) — selectResultMock liefert der Reihe
-  // nach die konfigurierten Ergebnisse via mockResolvedValueOnce.
+  // Jeder Aufruf von db.select(...) baut eine frische Kette. Der Unit-Lookup
+  // awaitet direkt nach .from() (kein .where()/.limit() mehr, siehe
+  // filterPublishedUnits-Kaskade in page.tsx), der Region-Lookup weiterhin
+  // über .where().limit() — beide ziehen der Reihe nach aus derselben
+  // selectResultMock-Queue via mockResolvedValueOnce, exakt wie zuvor.
   const selectResultMock = vi.fn().mockResolvedValue([]);
   const selectMock = vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: vi.fn(() => selectResultMock()),
-      })),
-    })),
+    from: vi.fn(() => {
+      const whereResult = { limit: vi.fn(() => selectResultMock()) };
+      return {
+        where: vi.fn(() => whereResult),
+        then: (resolve: (value: unknown) => void, reject: (reason: unknown) => void) =>
+          selectResultMock().then(resolve, reject),
+      };
+    }),
   }));
   return {
     authMock: vi.fn().mockResolvedValue(null),
@@ -63,8 +68,29 @@ describe("AdministrativeUnitDeepLinkPage", () => {
     ).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
+  it("404'ed, wenn die Einheit existiert, aber nicht freigegeben ist", async () => {
+    selectResultMock
+      .mockResolvedValueOnce([{ id: validUuid, parentId: null, published: false }])
+      .mockResolvedValueOnce([]);
+    await expect(
+      AdministrativeUnitDeepLinkPage({ params: Promise.resolve({ unitId: validUuid }) })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("404'ed, wenn ein Vorfahre der Einheit nicht freigegeben ist (Kaskade)", async () => {
+    selectResultMock
+      .mockResolvedValueOnce([
+        { id: "parent", parentId: null, published: false },
+        { id: validUuid, parentId: "parent", published: true },
+      ])
+      .mockResolvedValueOnce([]);
+    await expect(
+      AdministrativeUnitDeepLinkPage({ params: Promise.resolve({ unitId: validUuid }) })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
   it("rendert die Gast-Übernahme-Komponente für anonyme Besucher (Unit-Treffer), ohne setPersonalSetting aufzurufen", async () => {
-    selectResultMock.mockResolvedValueOnce([{ id: validUuid }]);
+    selectResultMock.mockResolvedValueOnce([{ id: validUuid, parentId: null, published: true }]);
     authMock.mockResolvedValueOnce(null);
 
     render(await AdministrativeUnitDeepLinkPage({ params: Promise.resolve({ unitId: validUuid }) }));
@@ -74,7 +100,7 @@ describe("AdministrativeUnitDeepLinkPage", () => {
   });
 
   it("speichert serverseitig und leitet eingeloggte User auf / um (Unit-Treffer)", async () => {
-    selectResultMock.mockResolvedValueOnce([{ id: validUuid }]);
+    selectResultMock.mockResolvedValueOnce([{ id: validUuid, parentId: null, published: true }]);
     authMock.mockResolvedValueOnce({ user: { id: "1", role: "user", email: "u@example.com" } });
 
     await expect(

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Users, Settings, MapPinned } from "lucide-react";
+import { ShieldCheck, Users, Settings, MapPinned, UploadCloud } from "lucide-react";
 import { auth } from "@/auth";
 import {
   canAccessAdminArea,
@@ -8,6 +8,7 @@ import {
   canManageAppSettings,
   canManageUsers,
   canManageRegions,
+  canUploadImages,
 } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -54,13 +55,13 @@ export default async function AdminPage() {
               <RoleBadge role={session.user.role} />
             </div>
 
-            {canManageUsers(session.user.role) && (
+            {canUploadImages(session.user.role) && (
               <Link
-                href="/admin/users"
+                href="/admin/images/upload"
                 className={cn(buttonVariants({ variant: "outline" }))}
               >
-                <Users className="size-4" />
-                User-Rechte verwalten
+                <UploadCloud className="size-4" />
+                Bilder hochladen
               </Link>
             )}
             {canManageAppSettings(session.user.role) && (
@@ -79,6 +80,15 @@ export default async function AdminPage() {
               >
                 <MapPinned className="size-4" />
                 Standorte &amp; Regionen
+              </Link>
+            )}
+            {canManageUsers(session.user.role) && (
+              <Link
+                href="/admin/users"
+                className={cn(buttonVariants({ variant: "outline" }))}
+              >
+                <Users className="size-4" />
+                User-Rechte verwalten
               </Link>
             )}
           </CardContent>

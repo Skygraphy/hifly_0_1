@@ -1,3 +1,5 @@
+import type { StandortRef } from "@/lib/standort";
+
 export type Role = "user" | "admin" | "super_admin";
 
 const ROLE_RANK: Record<Role, number> = { user: 0, admin: 1, super_admin: 2 };
@@ -143,6 +145,64 @@ export function canBlockUser(input: CanBlockUserInput): CanBlockUserResult {
     return { allowed: false, reason: "Der super_admin kann nicht blockiert werden." };
   }
 
+  return { allowed: true };
+}
+
+/**
+ * Darf Bilder in den S3-Bucket hochladen (Upload-Seite überhaupt öffnen).
+ * admin UND super_admin — welche konkreten Standorte/Regionen dabei
+ * zugewiesen werden dürfen, ist eine separate, datenabhängige Prüfung,
+ * siehe canAssignImageLocation.
+ */
+export function canUploadImages(role: Role | undefined | null): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
+/**
+ * Darf festlegen, welche Standorte/Regionen ein bestimmter admin beim
+ * Bild-Upload zuweisen darf (admin_location_grants pflegen). Aktuell
+ * dieselbe Schwelle wie canManageUsers, aber bewusst eine eigene Funktion —
+ * andere Ressource, die zufällig denselben Wert hat.
+ */
+export function canManageLocationGrants(role: Role | undefined | null): boolean {
+  return role === "super_admin";
+}
+
+export interface CanAssignImageLocationInput {
+  actingRole: Role;
+  standort: StandortRef;
+  grantedUnitIds: ReadonlySet<string>;
+  grantedRegionIds: ReadonlySet<string>;
+}
+
+export interface CanAssignImageLocationResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * Einzige Quelle der Wahrheit für "darf dieser admin BEIM UPLOAD genau
+ * diesen einen Standort/diese Region einem Bild zuweisen" — im Gegensatz zu
+ * den obigen Rollen-Prädikaten datenabhängig (welche Freigaben existieren),
+ * daher als input/Result-Funktion wie canChangeRole/canBlockUser. super_admin
+ * ist immer erlaubt, unabhängig von admin_location_grants (siehe
+ * getAssignableLocations in src/app/admin/images/actions.ts, das für
+ * super_admin den kompletten Baum als "freigegeben" zurückgibt statt hier
+ * separat zu verzweigen).
+ */
+export function canAssignImageLocation(input: CanAssignImageLocationInput): CanAssignImageLocationResult {
+  const { actingRole, standort, grantedUnitIds, grantedRegionIds } = input;
+
+  if (actingRole !== "admin" && actingRole !== "super_admin") {
+    return { allowed: false, reason: "Nur admin oder super_admin dürfen Bilder hochladen." };
+  }
+  if (actingRole === "super_admin") {
+    return { allowed: true };
+  }
+  const granted = standort.type === "unit" ? grantedUnitIds.has(standort.id) : grantedRegionIds.has(standort.id);
+  if (!granted) {
+    return { allowed: false, reason: "Dieser Standort wurde für diesen admin nicht freigegeben." };
+  }
   return { allowed: true };
 }
 

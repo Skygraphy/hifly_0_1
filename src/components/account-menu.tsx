@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home, MapPinned } from "lucide-react";
+import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home, MapPinned, UploadCloud } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -24,6 +24,7 @@ import {
   canManageUsers,
   canManageRegions,
   canRunOpsTools,
+  canUploadImages,
   type Role,
 } from "@/lib/authorization";
 import { signOutAction } from "./account-menu-actions";
@@ -132,10 +133,11 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
         </DropdownMenuGroup>
 
         {(canAccessAdminArea(user.role) ||
-          canManageUsers(user.role) ||
+          canUploadImages(user.role) ||
           canManageAppSettings(user.role) ||
           canManageAdministrativeUnits(user.role) ||
-          canManageRegions(user.role)) && (
+          canManageRegions(user.role) ||
+          canManageUsers(user.role)) && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -148,14 +150,14 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                   Admin-Bereich
                 </DropdownMenuItem>
               )}
-              {canManageUsers(user.role) && (
+              {canUploadImages(user.role) && (
                 <DropdownMenuItem
                   inset
-                  data-testid="account-menu-users-link"
-                  onClick={() => router.push("/admin/users")}
+                  data-testid="account-menu-images-upload-link"
+                  onClick={() => router.push("/admin/images/upload")}
                 >
-                  <Users className="size-4" />
-                  User-Rechte verwalten
+                  <UploadCloud className="size-4" />
+                  Bilder hochladen
                 </DropdownMenuItem>
               )}
               {canManageAppSettings(user.role) && (
@@ -176,6 +178,16 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                 >
                   <MapPinned className="size-4" />
                   Standorte &amp; Regionen
+                </DropdownMenuItem>
+              )}
+              {canManageUsers(user.role) && (
+                <DropdownMenuItem
+                  inset
+                  data-testid="account-menu-users-link"
+                  onClick={() => router.push("/admin/users")}
+                >
+                  <Users className="size-4" />
+                  User-Rechte verwalten
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>

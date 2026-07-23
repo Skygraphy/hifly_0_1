@@ -4,6 +4,7 @@ import {
   getChildLevel,
   groupByParent,
   pathToRoot,
+  filterPublishedUnits,
   type AdministrativeUnit,
 } from "./administrative-units";
 
@@ -33,6 +34,7 @@ function makeUnit(overrides: Partial<AdministrativeUnit> & Pick<AdministrativeUn
     name: overrides.id,
     shortName: null,
     color: null,
+    published: true,
     ...overrides,
   };
 }
@@ -69,5 +71,23 @@ describe("pathToRoot", () => {
 
   it("liefert [] für eine unbekannte id", () => {
     expect(pathToRoot("nonexistent", byId)).toEqual([]);
+  });
+});
+
+describe("filterPublishedUnits", () => {
+  it("behält eine vollständig veröffentlichte Kette", () => {
+    expect(filterPublishedUnits(fixture)).toEqual(fixture);
+  });
+
+  it("eine nicht freigegebene Einheit blockiert auch ihren gesamten Unterbaum, selbst wenn Kinder selbst freigegeben sind", () => {
+    const draftChild = makeUnit({ id: "child", parentId: "root", level: "state", published: false });
+    const publishedGrandchild = makeUnit({ id: "grandchild", parentId: "child", level: "district", published: true });
+    const result = filterPublishedUnits([root, draftChild, publishedGrandchild]);
+    expect(result).toEqual([root]);
+  });
+
+  it("eine nicht freigegebene Einheit ohne Kinder wird nur selbst entfernt", () => {
+    const draftLeaf = makeUnit({ id: "child", parentId: "root", level: "state", published: false });
+    expect(filterPublishedUnits([root, draftLeaf])).toEqual([root]);
   });
 });

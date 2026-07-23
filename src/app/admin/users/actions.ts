@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { users } from "@/db/schema";
-import { canChangeRole, canBlockUser, canDeleteUser, type Role } from "@/lib/authorization";
+import { users, adminLocationGrants } from "@/db/schema";
+import { canChangeRole, canBlockUser, canDeleteUser, canManageLocationGrants, type Role } from "@/lib/authorization";
+import type { StandortRef } from "@/lib/standort";
 
 export interface SetUserRoleResult {
   success: boolean;
@@ -130,6 +131,73 @@ export async function deleteUser(targetUserId: string): Promise<SetUserRoleResul
   // accounts/sessions/user_settings referenzieren users.id mit
   // onDelete: "cascade" (siehe src/db/schema.ts) — räumen sich automatisch mit auf.
   await db.delete(users).where(eq(users.id, targetUserId));
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export interface GrantLocationResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Gibt einem admin GENAU eine Verwaltungseinheit/Region fürs Bild-Upload
+ * frei (siehe admin_location_grants in src/db/schema.ts) — bewusst kein
+ * Kaskadieren auf Unterebenen. onConflictDoNothing greift über die
+ * partiellen Unique-Indizes der Tabelle, ein erneutes Freigeben derselben
+ * Kombination ist damit ein no-op statt eines Fehlers.
+ */
+export async function grantAdminLocation(
+  adminUserId: string,
+  standort: StandortRef
+): Promise<GrantLocationResult> {
+  const session = await auth();
+
+  if (!session?.user) {
+    return { success: false, error: "Nicht angemeldet." };
+  }
+  if (!canManageLocationGrants(session.user.role)) {
+    return { success: false, error: "Nur der super_admin darf Standort-Freigaben verwalten." };
+  }
+
+  await db
+    .insert(adminLocationGrants)
+    .values({
+      adminUserId,
+      administrativeUnitId: standort.type === "unit" ? standort.id : null,
+      regionId: standort.type === "region" ? standort.id : null,
+      grantedBy: session.user.id,
+    })
+    .onConflictDoNothing();
+
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function revokeAdminLocation(
+  adminUserId: string,
+  standort: StandortRef
+): Promise<GrantLocationResult> {
+  const session = await auth();
+
+  if (!session?.user) {
+    return { success: false, error: "Nicht angemeldet." };
+  }
+  if (!canManageLocationGrants(session.user.role)) {
+    return { success: false, error: "Nur der super_admin darf Standort-Freigaben verwalten." };
+  }
+
+  await db
+    .delete(adminLocationGrants)
+    .where(
+      and(
+        eq(adminLocationGrants.adminUserId, adminUserId),
+        standort.type === "unit"
+          ? eq(adminLocationGrants.administrativeUnitId, standort.id)
+          : eq(adminLocationGrants.regionId, standort.id)
+      )
+    );
 
   revalidatePath("/admin/users");
   return { success: true };

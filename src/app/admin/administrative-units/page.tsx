@@ -37,6 +37,7 @@ export default async function AdministrativeUnitsPage() {
         name: administrativeUnits.name,
         shortName: administrativeUnits.shortName,
         color: administrativeUnits.color,
+        published: administrativeUnits.published,
       })
       .from(administrativeUnits)
       .orderBy(administrativeUnits.name),
@@ -48,6 +49,7 @@ export default async function AdministrativeUnitsPage() {
         color: regions.color,
         parentId: regions.parentId,
         homeLevel: regions.homeLevel,
+        published: regions.published,
       })
       .from(regions)
       .orderBy(regions.name),

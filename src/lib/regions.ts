@@ -9,6 +9,10 @@ export interface Region {
    * unveränderlich danach (siehe src/db/schema.ts). null = Bund-Ebene. */
   parentId: string | null;
   homeLevel: AdministrativeLevel;
+  /** Nur veröffentlichte Regionen erscheinen öffentlich (Picker/Deep-Link) —
+   * bereits serverseitig gefiltert, siehe getStandortPickerData. Im Admin-
+   * Bereich (groupRegionsByHome) sind auch unveröffentlichte enthalten. */
+  published: boolean;
 }
 
 export interface RegionAdministrativeUnitLink {
