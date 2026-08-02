@@ -109,7 +109,12 @@ export interface PreparedMatchEntry {
   mainLocation: string | null;
   secondaryLocations: string[];
   tags: string[];
-  userTags: string[];
+  // user_tags wird bewusst NICHT aus der Datei übernommen — bei diesem Feld
+  // ist die images-Tabelle die Wahrheit, nicht die Match-Datei (im Gegensatz
+  // zu allen anderen Feldern hier). Pro-Tag-Eigentümerschaft (siehe
+  // UserTagEntry) lässt sich aus einer reinen Text-Liste in der Datei
+  // ohnehin nicht ableiten. Verwaltung läuft über addUserTag/removeUserTag
+  // in src/app/images/actions.ts.
   webVisible: boolean | null;
   webRanking: number | null;
   printVisible: boolean | null;
@@ -261,7 +266,6 @@ export async function prepareImageMatch(entries: MatchFileEntry[]): Promise<Prep
       mainLocation: entry.main_location,
       secondaryLocations: entry.secondary_locations,
       tags: entry.tags,
-      userTags: entry.user_tags,
       webVisible: entry.web_visible,
       webRanking: entry.web_ranking,
       printVisible: entry.print_visible,
@@ -284,7 +288,11 @@ export interface ApplyImageMatchEntryResult {
  * prepareImageMatch bereits entschiedene Zeile. Wird vom Client einzeln
  * pro Ordner aufgerufen (nicht als eine große Transaktion über alle Zeilen)
  * — dadurch kann die UI zwischen den Aufrufen den Fortschritt live anzeigen.
- * Legt NIE eine neue Zeile an, löscht NIE eine Zeile.
+ * Legt NIE eine neue Zeile an, löscht NIE eine Zeile. user_tags wird NIE
+ * geschrieben (siehe Kommentar an PreparedMatchEntry). print_visible/
+ * print_ranking dürfen nur vom super_admin geschrieben werden — bei jedem
+ * anderen (zulässigen, siehe canUploadImages) Aufrufer bleiben die
+ * vorhandenen DB-Werte für diese zwei Felder unangetastet.
  */
 export async function applyImageMatchEntry(entry: PreparedMatchEntry): Promise<ApplyImageMatchEntryResult> {
   const session = await auth();
@@ -298,6 +306,16 @@ export async function applyImageMatchEntry(entry: PreparedMatchEntry): Promise<A
     return { success: false, error: "Nur admin oder super_admin dürfen den Abgleich durchführen." };
   }
 
+  const [existing] = await db
+    .select({ printVisible: images.printVisible, printRanking: images.printRanking })
+    .from(images)
+    .where(eq(images.id, entry.id))
+    .limit(1);
+  if (!existing) {
+    return { success: false, error: "Bild nicht gefunden." };
+  }
+  const canManagePrintFields = session.user.role === "super_admin";
+
   await db
     .update(images)
     .set({
@@ -307,11 +325,10 @@ export async function applyImageMatchEntry(entry: PreparedMatchEntry): Promise<A
       mainLocation: entry.mainLocation,
       secondaryLocations: entry.secondaryLocations,
       tags: entry.tags,
-      userTags: entry.userTags,
       webVisible: entry.webVisible,
       webRanking: entry.webRanking,
-      printVisible: entry.printVisible,
-      printRanking: entry.printRanking,
+      printVisible: canManagePrintFields ? entry.printVisible : existing.printVisible,
+      printRanking: canManagePrintFields ? entry.printRanking : existing.printRanking,
       updatedAt: new Date(),
       ...(entry.newAdministrativeUnitId ? { administrativeUnitId: entry.newAdministrativeUnitId } : {}),
     })

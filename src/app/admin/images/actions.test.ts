@@ -16,7 +16,26 @@ const { authMock, dbMock } = vi.hoisted(() => {
     then: (resolve: (value: unknown[]) => void, reject?: (err: unknown) => void) =>
       Promise.resolve(fromAwaitRows).then(resolve, reject),
   }));
-  const selectMock = vi.fn(() => ({ from: selectFromMock }));
+
+  // Eigene Kette für applyImageMatchEntry's Vorab-select von printVisible/
+  // printRanking (anderes Projektions-Shape als die images/admin_location_
+  // grants-Abfragen oben) — braucht zusätzlich .limit(1), daher ein
+  // Promise mit angehängtem .limit statt eines simplen vi.fn().mockResolvedValue.
+  const printFieldsRowsMock = vi.fn().mockResolvedValue([{ printVisible: true, printRanking: 1 }]);
+  function printFieldsQueryResult(): Promise<unknown[]> & { limit: () => Promise<unknown[]> } {
+    const promise = printFieldsRowsMock() as Promise<unknown[]> & { limit: () => Promise<unknown[]> };
+    promise.limit = () => printFieldsQueryResult();
+    return promise;
+  }
+  const printFieldsWhereMock = vi.fn(() => printFieldsQueryResult());
+  const printFieldsFromMock = vi.fn(() => ({ where: printFieldsWhereMock }));
+
+  const selectMock = vi.fn((projection?: Record<string, unknown>) => {
+    if (projection && "printVisible" in projection) {
+      return { from: printFieldsFromMock };
+    }
+    return { from: selectFromMock };
+  });
 
   const updateWhereMock = vi.fn().mockResolvedValue(undefined);
   const setMock = vi.fn<(values: Record<string, unknown>) => { where: typeof updateWhereMock }>(() => ({
@@ -33,6 +52,7 @@ const { authMock, dbMock } = vi.hoisted(() => {
       select: selectMock,
       selectFromMock,
       selectWhereMock,
+      printFieldsRowsMock,
       setFromAwaitRows: (rows: unknown[]) => {
         fromAwaitRows = rows;
       },
@@ -252,7 +272,6 @@ describe("prepareImageMatch", () => {
         mainLocation: "Teststraße",
         secondaryLocations: ["SL1"],
         tags: ["T1"],
-        userTags: ["UT1"],
         webVisible: true,
         webRanking: 1,
         printVisible: true,
@@ -261,6 +280,8 @@ describe("prepareImageMatch", () => {
         warning: null,
       }),
     ]);
+    // user_tags NIE aus der Datei übernehmen — images-Tabelle bleibt hier Wahrheit.
+    expect(result.plan?.[0]).not.toHaveProperty("userTags");
   });
 
   it("administrativeUnitId zeigt bereits auf die zu area passende Einheit (erneuter Lauf) → kein Warning, keine Änderung geplant", async () => {
@@ -364,7 +385,6 @@ describe("applyImageMatchEntry", () => {
     mainLocation: "Teststraße",
     secondaryLocations: ["SL1"],
     tags: ["T1"],
-    userTags: ["UT1"],
     webVisible: true,
     webRanking: 1,
     printVisible: true,
@@ -376,6 +396,7 @@ describe("applyImageMatchEntry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+    dbMock.printFieldsRowsMock.mockResolvedValue([{ printVisible: false, printRanking: 0 }]);
   });
 
   it("lehnt ab, wenn niemand eingeloggt ist", async () => {
@@ -396,7 +417,9 @@ describe("applyImageMatchEntry", () => {
     expect(dbMock.update).not.toHaveBeenCalled();
   });
 
-  it("schreibt alle Feldwerte 1:1 (Datei ist Wahrheit, auch leere Werte löschen)", async () => {
+  it("schreibt alle Feldwerte 1:1 (Datei ist Wahrheit, auch leere Werte löschen) — als super_admin auch print-Felder", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+
     const result = await applyImageMatchEntry({
       ...preparedEntry,
       lat: null,
@@ -404,7 +427,6 @@ describe("applyImageMatchEntry", () => {
       mainLocation: null,
       secondaryLocations: [],
       tags: [],
-      userTags: [],
       webVisible: null,
       webRanking: null,
       printVisible: null,
@@ -420,7 +442,6 @@ describe("applyImageMatchEntry", () => {
         mainLocation: null,
         secondaryLocations: [],
         tags: [],
-        userTags: [],
         webVisible: null,
         webRanking: null,
         printVisible: null,
@@ -428,6 +449,26 @@ describe("applyImageMatchEntry", () => {
       })
     );
     expect(dbMock.setMock.mock.calls[0][0]).not.toHaveProperty("administrativeUnitId");
+    expect(dbMock.setMock.mock.calls[0][0]).not.toHaveProperty("userTags");
+  });
+
+  it("admin darf print_visible/print_ranking NICHT ändern — vorhandene DB-Werte bleiben stehen", async () => {
+    // beforeEach setzt admin-Rolle + printFieldsRowsMock auf {printVisible:false, printRanking:0}
+    await applyImageMatchEntry(preparedEntry); // preparedEntry hat printVisible:true, printRanking:1
+
+    const setArg = dbMock.setMock.mock.calls[0][0];
+    expect(setArg.printVisible).toBe(false);
+    expect(setArg.printRanking).toBe(0);
+  });
+
+  it("super_admin darf print_visible/print_ranking ändern", async () => {
+    authMock.mockResolvedValue({ user: { id: "super-1", role: "super_admin" } });
+
+    await applyImageMatchEntry(preparedEntry);
+
+    const setArg = dbMock.setMock.mock.calls[0][0];
+    expect(setArg.printVisible).toBe(true);
+    expect(setArg.printRanking).toBe(1);
   });
 
   it("setzt administrativeUnitId nur, wenn newAdministrativeUnitId gesetzt ist — regionId nie", async () => {
