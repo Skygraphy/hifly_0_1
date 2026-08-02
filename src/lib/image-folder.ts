@@ -44,3 +44,27 @@ export function parseImageFolderName(name: string): ParsedImageFolder | null {
 export function s3KeyFor(folderId: string, filename: string): string {
   return `${folderId}/${filename}`;
 }
+
+/**
+ * Öffentliche URL der thumb.jpg-Datei eines Bildes, für die Anzeige auf
+ * /images — setzt voraus, dass der S3-Bucket (bzw. zumindest das
+ * thumb.jpg-Prefix jedes Ordners) auf public-read gestellt ist
+ * (Bucket-Policy, nicht Teil dieses Codes) und NEXT_PUBLIC_S3_PUBLIC_BASE_URL
+ * auf die öffentliche Basis-URL (S3- oder CDN-Domain) zeigt.
+ */
+export function thumbUrlFor(imageId: string): string {
+  const base = process.env.NEXT_PUBLIC_S3_PUBLIC_BASE_URL;
+  if (!base) throw new Error("NEXT_PUBLIC_S3_PUBLIC_BASE_URL ist nicht gesetzt.");
+  return `${base.replace(/\/$/, "")}/${s3KeyFor(imageId, "thumb.jpg")}`;
+}
+
+/**
+ * Öffentliche URL der preview.jpg-Datei (Vollbild-Ansicht im Popup auf
+ * /images) — setzt wie thumbUrlFor voraus, dass der Bucket dieses Prefix
+ * public-read erlaubt (Bucket-Policy um PublicReadPreview ergänzt).
+ */
+export function previewUrlFor(imageId: string): string {
+  const base = process.env.NEXT_PUBLIC_S3_PUBLIC_BASE_URL;
+  if (!base) throw new Error("NEXT_PUBLIC_S3_PUBLIC_BASE_URL ist nicht gesetzt.");
+  return `${base.replace(/\/$/, "")}/${s3KeyFor(imageId, "preview.jpg")}`;
+}

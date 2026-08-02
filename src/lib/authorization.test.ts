@@ -5,6 +5,10 @@ import {
   canManageUsers,
   canChangeRole,
   canBlockUser,
+  canSeeHiddenImages,
+  canEditImage,
+  canDeleteImage,
+  canManageUserTag,
   hasMinRole,
   isOAuthSignInAllowed,
   type Role,
@@ -148,5 +152,114 @@ describe("canBlockUser", () => {
   it("lehnt ab, wenn das Ziel der super_admin ist", () => {
     const result = canBlockUser({ ...base, targetCurrentRole: "super_admin" });
     expect(result.allowed).toBe(false);
+  });
+});
+
+describe("canSeeHiddenImages", () => {
+  it.each<[Role | undefined | null, boolean]>([
+    ["user", false],
+    ["admin", true],
+    ["super_admin", true],
+    [undefined, false],
+    [null, false],
+  ])("role=%s -> %s", (role, expected) => {
+    expect(canSeeHiddenImages(role)).toBe(expected);
+  });
+});
+
+describe("canEditImage / canDeleteImage", () => {
+  const owner = { actingUserId: "admin-1", actingRole: "admin" as Role, imageUploadedBy: "admin-1" };
+  const notOwner = { actingUserId: "admin-2", actingRole: "admin" as Role, imageUploadedBy: "admin-1" };
+  const superAdmin = { actingUserId: "super-1", actingRole: "super_admin" as Role, imageUploadedBy: "admin-1" };
+  const plainUser = { actingUserId: "user-1", actingRole: "user" as Role, imageUploadedBy: "admin-1" };
+
+  it.each([
+    ["canEditImage", canEditImage],
+    ["canDeleteImage", canDeleteImage],
+  ] as const)("%s: admin darf sein eigenes Bild verwalten", (_name, fn) => {
+    expect(fn(owner)).toBe(true);
+  });
+
+  it.each([
+    ["canEditImage", canEditImage],
+    ["canDeleteImage", canDeleteImage],
+  ] as const)("%s: admin darf NICHT das Bild eines anderen admin verwalten", (_name, fn) => {
+    expect(fn(notOwner)).toBe(false);
+  });
+
+  it.each([
+    ["canEditImage", canEditImage],
+    ["canDeleteImage", canDeleteImage],
+  ] as const)("%s: super_admin darf jedes Bild verwalten", (_name, fn) => {
+    expect(fn(superAdmin)).toBe(true);
+  });
+
+  it.each([
+    ["canEditImage", canEditImage],
+    ["canDeleteImage", canDeleteImage],
+  ] as const)("%s: eine plain user-Rolle darf nie", (_name, fn) => {
+    expect(fn(plainUser)).toBe(false);
+  });
+});
+
+describe("canManageUserTag", () => {
+  const imageUploadedBy = "admin-owner";
+
+  it("super_admin darf jeden Tag verwalten, unabhängig von allem", () => {
+    expect(
+      canManageUserTag({ actingUserId: "super-1", actingRole: "super_admin", tagAddedBy: "someone-else", imageUploadedBy })
+    ).toBe(true);
+    expect(
+      canManageUserTag({ actingUserId: "super-1", actingRole: "super_admin", tagAddedBy: null, imageUploadedBy })
+    ).toBe(true);
+  });
+
+  it("jede Rolle darf ihren eigenen Tag verwalten, egal wer das Bild hochgeladen hat", () => {
+    expect(
+      canManageUserTag({ actingUserId: "user-1", actingRole: "user", tagAddedBy: "user-1", imageUploadedBy })
+    ).toBe(true);
+    expect(
+      canManageUserTag({ actingUserId: "admin-2", actingRole: "admin", tagAddedBy: "admin-2", imageUploadedBy })
+    ).toBe(true);
+  });
+
+  it("der Owner-admin darf auch fremde Tags auf seinem eigenen Bild verwalten", () => {
+    expect(
+      canManageUserTag({
+        actingUserId: imageUploadedBy,
+        actingRole: "admin",
+        tagAddedBy: "irgendein-user",
+        imageUploadedBy,
+      })
+    ).toBe(true);
+  });
+
+  it("der Owner-admin darf auch Alt-Tags (addedBy null) auf seinem eigenen Bild verwalten", () => {
+    expect(
+      canManageUserTag({ actingUserId: imageUploadedBy, actingRole: "admin", tagAddedBy: null, imageUploadedBy })
+    ).toBe(true);
+  });
+
+  it("ein NICHT-Owner-admin darf einen fremden Tag auf einem fremden Bild nicht verwalten", () => {
+    expect(
+      canManageUserTag({
+        actingUserId: "admin-2",
+        actingRole: "admin",
+        tagAddedBy: "irgendein-user",
+        imageUploadedBy,
+      })
+    ).toBe(false);
+  });
+
+  it("ein plain user darf einen fremden Tag nicht verwalten", () => {
+    expect(
+      canManageUserTag({ actingUserId: "user-1", actingRole: "user", tagAddedBy: "user-2", imageUploadedBy })
+    ).toBe(false);
+  });
+
+  it("anonym (keine actingUserId) darf nie", () => {
+    expect(
+      canManageUserTag({ actingUserId: undefined, actingRole: undefined, tagAddedBy: null, imageUploadedBy })
+    ).toBe(false);
   });
 });

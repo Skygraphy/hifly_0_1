@@ -103,23 +103,31 @@ body {
  */
 .dark {
   --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
+  /* Weicheres Off-White statt reinem Weiß (0.985) — wirkte über große
+     Textflächen zu grell/kontrastreich, gedämpfter näher am
+     Supabase-Vorbild. Gilt für alle *-foreground-Werte in diesem Block.
+     Erster Versuch (0.92) war zu nah am Original, kaum wahrnehmbar —
+     jetzt deutlich spürbar auf 0.85. */
+  --foreground: oklch(0.85 0 0);
   --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  /* Bewusst heller als --card: Popover-Flächen (Dropdown-Menü, Dialoge)
-     sitzen über anderen dunklen Flächen und brauchen mehr Abstand zum
-     Hintergrund, um sich sichtbar abzuheben (Vorbild: Supabase-Kontomenü). */
-  --popover: oklch(0.26 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --card-foreground: oklch(0.85 0 0);
+  /* Popover-Flächen (Dropdown-Menü, Dialoge) sitzen über anderen dunklen
+     Flächen — Abhebung kommt primär über ring+shadow (siehe dropdown-menu.tsx/
+     popover.tsx), nicht über zusätzliche Helligkeit. Verlauf: 0.26 → 0.22 →
+     0.19 → 0.16 → jetzt exakt auf --background-Niveau (0.145) — im echten
+     Supabase-Dashboard sind Menüflächen vom Hintergrund praktisch nicht zu
+     unterscheiden, nur der dünne Rand zeigt die Kante. */
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.85 0 0);
   /* Coral als einzige Akzentfarbe (statt Supabase-Grün): dunkler Text auf dem hellen Ton für guten Kontrast */
   --primary: #FF7F50;
   --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
+  --secondary-foreground: oklch(0.85 0 0);
   --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
+  --muted-foreground: oklch(0.55 0 0);
   --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent-foreground: oklch(0.85 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
@@ -130,11 +138,11 @@ body {
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.85 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.85 0 0);
   --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-accent-foreground: oklch(0.85 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
@@ -146,8 +154,49 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+  /* Browser-Default für <button> ist "cursor: default", nicht "pointer" —
+     ohne diese Regel wirkten SÄMTLICHE Buttons im Projekt (Bearbeiten/
+     Löschen/Schließen/Sortieren/Ansicht-Umschalten/Standort-Punkt, …) beim
+     Hovern nicht klickbar. Global statt pro Button-Variante, aus demselben
+     Grund wie die Scrollbar-Regel unten: einzeln nachrüsten wird zuverlässig
+     vergessen. :not(:disabled)/:not([aria-disabled="true"]) klammert
+     deaktivierte Buttons bewusst aus — die behalten dadurch, was sie schon
+     an Cursor-Verhalten haben (z.B. disabled:cursor-not-allowed an manchen
+     Stellen wie Input/Select), statt hier unabhängig davon überschrieben zu
+     werden. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+
   html {
     @apply font-sans;
+    /* Reserviert die Scrollbar-Spur immer, auch wenn der Inhalt (noch)
+       nicht scrollt. Ohne das verschiebt sich jeder mittig zentrierte
+       Container (mx-auto max-w-*) horizontal, sobald sich die Seitenhöhe
+       über/unter die Viewport-Höhe ändert und der Scrollbalken dadurch
+       erscheint/verschwindet — z.B. beim Umschalten zwischen der langen
+       Bilder-Grid- und der kurzen, fixhohen Karten-Ansicht auf /images.
+       scrollbar-gutter allein reichte nicht: es wirkt nur, wenn overflow
+       NICHT auf "visible" steht — html's Default ist aber "visible" (das
+       Scrollen des Viewports selbst ist ein Browser-Sonderfall, unabhängig
+       vom overflow-Wert). Erst overflow-y: scroll erzwingt eine dauerhaft
+       sichtbare/reservierte Scrollbar, unabhängig davon, ob der Inhalt
+       gerade tatsächlich überläuft.
+       Kein !important nötig: Dialoge (base-ui) sperren beim Öffnen das
+       Hintergrund-Scrollen per INLINE style="overflow: hidden" auf <html>
+       und entfernen es beim Schließen wieder (useScrollLock.ts). Das sieht
+       nach einem Kaskaden-Konflikt mit der Regel hier aus, ist aber keiner:
+       scrollbar-gutter reserviert die Spur bei JEDEM Overflow-Wert außer
+       "visible" — ob gerade "scroll" (diese Regel) oder "hidden" (base-ui
+       während des Locks) gewinnt, ist irrelevant, solange nie "visible"
+       aktiv wird. base-ui selbst prüft das vor dem Locken (useScrollLock.mjs,
+       supportsStableScrollbarGutter) und wechselt nie zurück auf "visible" —
+       daher bleibt die Spur beim Öffnen/Schließen eines Popups durchgehend
+       reserviert, kein Sprung im Grid ("Thumbs flackern"). */
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
   }
 
   /*

@@ -69,6 +69,24 @@ export function pathToRoot(unitId: string, byId: Map<string, AdministrativeUnit>
 }
 
 /**
+ * unitId selbst plus alle Nachfahren (rekursiv über byParent, siehe
+ * groupByParent) — Grundlage dafür, dass eine gewählte, grobe Ebene (z.B.
+ * eine Gemeinde) auch Bilder zeigt, die einer feineren Unterebene
+ * zugewiesen sind (z.B. ein Gebiet nach einem Abgleich), siehe searchImages
+ * in src/app/images/actions.ts.
+ */
+export function collectDescendantIds(
+  unitId: string,
+  byParent: Map<string | null, AdministrativeUnit[]>
+): string[] {
+  const ids: string[] = [unitId];
+  for (const child of byParent.get(unitId) ?? []) {
+    ids.push(...collectDescendantIds(child.id, byParent));
+  }
+  return ids;
+}
+
+/**
  * Kaskadierende Freigabe-Filterung für die öffentliche Anzeige: eine Einheit
  * bleibt nur erhalten, wenn sie SELBST und ihre GESAMTE Vorfahrenkette
  * published sind — eine nicht freigegebene Einheit blockiert damit auch

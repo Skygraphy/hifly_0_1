@@ -206,6 +206,75 @@ export function canAssignImageLocation(input: CanAssignImageLocationInput): CanA
   return { allowed: true };
 }
 
+/**
+ * Darf admin/super_admin-only auch NICHT öffentlich sichtbare Bilder
+ * (web_visible = false/null) in der Suche auf /images sehen — reine
+ * Sichtbarkeits-Gate, unabhängig davon, wer das Bild hochgeladen hat. Jeder
+ * admin soll weiterhin ALLE (auch fremde) unveröffentlichte Bilder finden
+ * können, um sie zu verwalten — nur Bearbeiten/Löschen ist auf den Owner
+ * eingeschränkt (siehe canEditImage/canDeleteImage unten).
+ */
+export function canSeeHiddenImages(role: Role | undefined | null): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
+export interface CanManageImageInput {
+  actingUserId: string | null | undefined;
+  actingRole: Role | null | undefined;
+  imageUploadedBy: string;
+}
+
+/**
+ * Darf Bild-Metadaten (main_location, tags, Sichtbarkeit, Ranking, ...) auf
+ * der öffentlichen /images-Seite ändern. Weist NIE administrativeUnitId/
+ * regionId neu zu (das bleibt dem "Abgleich"-Flow vorbehalten, siehe
+ * src/app/admin/images/actions.ts). Owner-only: ein admin darf nur Bilder
+ * bearbeiten, die er selbst hochgeladen hat (uploadedBy) — super_admin darf
+ * immer, unabhängig vom Owner.
+ */
+export function canEditImage(input: CanManageImageInput): boolean {
+  if (input.actingRole === "super_admin") return true;
+  if (input.actingRole === "admin") return input.actingUserId === input.imageUploadedBy;
+  return false;
+}
+
+/**
+ * Darf ein Bild (DB-Zeile + zugehörige S3-Objekte) endgültig löschen.
+ * Aktuell dieselbe Owner-Schwelle wie canEditImage, aber bewusst eine eigene
+ * Funktion — Löschen ist unwiderruflich, im Gegensatz zum reversiblen
+ * Bearbeiten, und soll unabhängig davon weiterentwickelbar bleiben.
+ */
+export function canDeleteImage(input: CanManageImageInput): boolean {
+  if (input.actingRole === "super_admin") return true;
+  if (input.actingRole === "admin") return input.actingUserId === input.imageUploadedBy;
+  return false;
+}
+
+export interface CanManageUserTagInput {
+  actingUserId: string | null | undefined;
+  actingRole: Role | null | undefined;
+  /** null bei Alt-Tags aus der Migration von text[] auf jsonb — der echte
+   * Ersteller ist dort nicht bekannt (siehe UserTagEntry in schema.ts). */
+  tagAddedBy: string | null;
+  imageUploadedBy: string;
+}
+
+/**
+ * Darf einen einzelnen user_tag ändern/löschen. Drei Fälle, in dieser
+ * Reihenfolge: super_admin immer; JEDE Rolle darf ihren EIGENEN Tag verwalten
+ * (reine Community-Funktion, unabhängig von der Bild-Eigentümerschaft); ein
+ * admin darf zusätzlich JEDEN Tag (auch fremde, auch null/Alt-Tags) auf einem
+ * Bild verwalten, das er selbst hochgeladen hat. Neue Tags anlegen braucht
+ * keine eigene Prüfung — dort wird addedBy immer auf die eigene id gesetzt,
+ * was durch den zweiten Fall hier automatisch erlaubt ist.
+ */
+export function canManageUserTag(input: CanManageUserTagInput): boolean {
+  if (input.actingRole === "super_admin") return true;
+  if (input.actingUserId && input.actingUserId === input.tagAddedBy) return true;
+  if (input.actingRole === "admin" && input.actingUserId === input.imageUploadedBy) return true;
+  return false;
+}
+
 export interface CanDeleteUserInput {
   actingUserId: string;
   actingRole: Role;

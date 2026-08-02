@@ -4,6 +4,7 @@ import {
   getChildLevel,
   groupByParent,
   pathToRoot,
+  collectDescendantIds,
   filterPublishedUnits,
   type AdministrativeUnit,
 } from "./administrative-units";
@@ -71,6 +72,24 @@ describe("pathToRoot", () => {
 
   it("liefert [] für eine unbekannte id", () => {
     expect(pathToRoot("nonexistent", byId)).toEqual([]);
+  });
+});
+
+describe("collectDescendantIds", () => {
+  it("liefert die id selbst plus alle verschachtelten Nachfahren", () => {
+    const byParent = groupByParent(fixture);
+    expect(collectDescendantIds("root", byParent)).toEqual(["root", "child", "grandchild"]);
+  });
+
+  it("liefert nur die id selbst für eine Blatt-Einheit ohne Kinder", () => {
+    const byParent = groupByParent(fixture);
+    expect(collectDescendantIds("grandchild", byParent)).toEqual(["grandchild"]);
+  });
+
+  it("erfasst mehrere Geschwister-Zweige", () => {
+    const sibling = makeUnit({ id: "sibling", parentId: "root", level: "state" });
+    const byParent = groupByParent([...fixture, sibling]);
+    expect(collectDescendantIds("root", byParent)).toEqual(["root", "child", "grandchild", "sibling"]);
   });
 });
 

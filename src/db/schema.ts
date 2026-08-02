@@ -220,6 +220,15 @@ export const regionAdministrativeUnits = pgTable(
 // onDelete "restrict" bewusst strenger als bei regions/regionAdministrative-
 // Units: ein Standort mit bereits hochgeladenen Bildern darf nicht
 // versehentlich mitgelöscht werden, die Bilder würden sonst verwaisen.
+// Ein Tag zusammen mit seinem Ersteller — addedBy ist null für Alt-Tags aus
+// der Migration von text[] auf jsonb (echter Ersteller nicht bekannt, wird
+// NICHT auf uploadedBy geraten). Siehe canManageUserTag in
+// src/lib/authorization.ts für die daraus abgeleiteten Rechte.
+export interface UserTagEntry {
+  tag: string;
+  addedBy: string | null;
+}
+
 export const images = pgTable(
   "images",
   {
@@ -246,7 +255,11 @@ export const images = pgTable(
     mainLocation: text("main_location"),
     secondaryLocations: text("secondary_locations").array(),
     tags: text("tags").array(),
-    userTags: text("user_tags").array(),
+    // Vorher text[]; jetzt jsonb mit Ersteller pro Tag (siehe UserTagEntry
+    // oben) — nötig für die Owner-only-Berechtigung auf Tag-Ebene
+    // (canManageUserTag). Migration konvertiert bestehende Werte, siehe
+    // drizzle/-Ordner.
+    userTags: jsonb("user_tags").$type<UserTagEntry[]>(),
     webVisible: boolean("web_visible"),
     webRanking: integer("web_ranking"),
     printVisible: boolean("print_visible"),

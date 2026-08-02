@@ -32,6 +32,10 @@ import { runFlowWalkthroughAction } from "./flow-report-actions";
 import { buildFlowWalkthroughLoadingPage } from "./flow-walkthrough-loading-page";
 
 export interface AccountMenuUser {
+  /** Optional, weil bislang nicht überall gebraucht (AccountMenu selbst
+   * benötigt keine id) — für die Owner-only Bild-Berechtigung auf /images
+   * (siehe canEditImage/canDeleteImage) aber erforderlich. */
+  id?: string;
   email?: string | null;
   name?: string | null;
   role: Role;
