@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   ADMINISTRATIVE_LEVELS,
+  collectDescendantIds,
   getChildLevel,
   groupByParent,
   pathToRoot,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/administrative-units";
 import { AdministrativeUnitColumnsView } from "@/components/administrative-unit-columns-view";
 import { AdministrativeUnitBreadcrumbView } from "@/components/administrative-unit-breadcrumb-view";
+import { StandortThumbnailPreview, type StandortThumbnailFilter } from "@/components/standort-thumbnail-preview";
 import { getGuestSettings, setGuestSetting } from "@/lib/guest-settings";
 import { setPersonalSetting } from "@/app/settings/actions";
 import { parseStandortValue, type StandortRef } from "@/lib/standort";
@@ -199,6 +201,22 @@ export function AdministrativeLevelWidget({
         ? (deepest?.name ?? "")
         : (selectedRegion?.name ?? "");
 
+  // Referenzstabil (useMemo), solange sich der zugrunde liegende Standort
+  // nicht ändert — StandortThumbnailPreview lädt bei jeder neuen filter-
+  // Referenz neu (siehe dort), ein bei jedem Render neu erzeugtes Objekt
+  // würde also bei jedem Re-Render unnötig neu abrufen. null nur in
+  // "unit-picker"/"region-orphan" (dort gibt es keine Breadcrumbs, zwischen
+  // denen die Vorschau stehen könnte).
+  const thumbnailFilter: StandortThumbnailFilter | null = useMemo(() => {
+    if (view === "unit-breadcrumb" && deepest) {
+      return { administrativeUnitIds: collectDescendantIds(deepest.id, byParent) };
+    }
+    if (view === "region-breadcrumb" && selectedRegion) {
+      return { regionId: selectedRegion.id };
+    }
+    return null;
+  }, [view, deepest, selectedRegion, byParent]);
+
   return (
     <div
       className="flex flex-col items-center gap-6"
@@ -211,7 +229,8 @@ export function AdministrativeLevelWidget({
       >
         {label}
       </p>
-      <div className="mt-16 flex flex-col items-center gap-4">
+      <StandortThumbnailPreview filter={thumbnailFilter} />
+      <div className="mt-8 flex flex-col items-center gap-4">
         {view === "unit-breadcrumb" && (
           <AdministrativeUnitBreadcrumbView
             pathUnits={pathUnits}

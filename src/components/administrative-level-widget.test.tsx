@@ -13,6 +13,15 @@ vi.mock("@/app/settings/actions", () => ({
   setPersonalSetting: setPersonalSettingMock,
 }));
 
+// StandortThumbnailPreview (gerendert zwischen Label und Breadcrumbs, siehe
+// administrative-level-widget.tsx) ruft getRandomImages auf — ohne diesen
+// Mock würde jeder Breadcrumb-Test einen echten (in vitest nicht
+// verfügbaren) DB-Zugriff auslösen. Leeres Array reicht hier: dieser Test
+// prüft nicht die Vorschau selbst (siehe standort-thumbnail-preview.test.tsx).
+vi.mock("@/app/images/actions", () => ({
+  getRandomImages: vi.fn().mockResolvedValue([]),
+}));
+
 const root: AdministrativeUnit = {
   id: "root",
   parentId: null,

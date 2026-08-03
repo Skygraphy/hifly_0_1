@@ -298,7 +298,7 @@ export function ImagePreviewPopup({
                 {/* Oben links: Hauptadresse + Hash in einem Badge (statt
                     zwei getrennten), dauerhaft sichtbar (nicht wie das
                     kleine Kachel-Badge beim Hovern ausblendend). */}
-                <Badge className="absolute top-3 left-3 h-9 gap-2 border-primary/60 bg-primary/40 px-3 text-sm text-primary-foreground backdrop-blur-sm">
+                <Badge className="absolute top-3 left-3 h-9 cursor-default gap-2 border-primary/60 bg-primary/40 px-3 text-sm text-primary-foreground backdrop-blur-sm">
                   <MapPin className="size-4 shrink-0" />
                   <span className="max-w-96 truncate">
                     {row.mainLocation ?? EMPTY_PLACEHOLDER} - {row.hash}
@@ -331,7 +331,21 @@ export function ImagePreviewPopup({
                   <div className="pointer-events-auto space-y-1.5 bg-gradient-to-t from-background/95 via-background/75 to-transparent px-4 pt-8 pb-3">
                     <div className="-mt-8 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
 
-                    <div className="flex items-center justify-between gap-2">
+                    {/* items-end statt items-center: die Bearbeiten-/
+                        Löschen-Buttons (nur bei canEdit/canDelete) sind
+                        höher als das Adress-Badge und machen dadurch DIESE
+                        Zeile höher als die Nebenorte-/Tags-/User-Tags-
+                        Zeilen darunter. Bei items-center hätte das Badge
+                        dadurch unten UND oben etwas Luft ("zentriert" in
+                        der höheren Zeile) — der Abstand zur nächsten Zeile
+                        (space-y-1.5, überall gleich 6px Marge) wirkte
+                        dadurch hier sichtbar größer als zwischen den
+                        anderen Zeilen. items-end lässt das Badge stattdessen
+                        bündig mit dem Zeilenende abschließen, genau wie bei
+                        den anderen (dort füllt der Zeileninhalt die Zeile
+                        exakt aus) — die 6px Marge wirkt dadurch überall
+                        gleich. */}
+                    <div className="flex items-end justify-between gap-2">
                       <div className="flex items-center gap-1.5 overflow-hidden">
                         <MapPin className="size-3.5 shrink-0 text-primary" />
                         {/* Badge statt einfachem <span> — sonst fehlt hier das
@@ -349,7 +363,7 @@ export function ImagePreviewPopup({
                           // löst sich automatisch je nach Theme in Weiß
                           // (Light) bzw. Schwarz (Dark) auf, passend zum
                           // satten primary/40-Hintergrund.
-                          className="min-w-0 shrink border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+                          className="min-w-0 shrink cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
                           title={row.mainLocation ?? undefined}
                         >
                           {/* truncate auf einem eigenen inneren <span> statt
@@ -431,7 +445,7 @@ export function ImagePreviewPopup({
                               // ist — useFittingCount regelt die Anzahl
                               // bereits nach Platz, shrink-0 verhindert, dass
                               // mehrere Badges sich gegenseitig stauchen.
-                              className="max-w-full shrink-0 border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+                              className="max-w-full shrink-0 cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
                               title={location}
                             >
                               {/* truncate auf innerem <span>, nicht direkt
@@ -443,7 +457,7 @@ export function ImagePreviewPopup({
                           {hiddenLocationCount > 0 && (
                             <Badge
                               variant="secondary"
-                              className="shrink-0 border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+                              className="shrink-0 cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
                             >
                               +{hiddenLocationCount}
                             </Badge>
@@ -466,7 +480,7 @@ export function ImagePreviewPopup({
                             <Badge
                               key={tag}
                               variant="secondary"
-                              className="max-w-full shrink-0 border-primary/30 bg-primary/20 text-xs text-primary"
+                              className="max-w-full shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary"
                             >
                               {/* truncate auf innerem <span>, nicht direkt
                                   auf dem (Flex-)Badge — siehe Kommentar bei
@@ -475,7 +489,7 @@ export function ImagePreviewPopup({
                             </Badge>
                           ))}
                           {hiddenTagCount > 0 && (
-                            <Badge variant="secondary" className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">
+                            <Badge variant="secondary" className="shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary">
                               +{hiddenTagCount}
                             </Badge>
                           )}
@@ -504,7 +518,7 @@ export function ImagePreviewPopup({
                           <Badge
                             key={`${entry.tag}-${entry.addedBy ?? "legacy"}`}
                             variant="secondary"
-                            className="max-w-full shrink-0 gap-1 border-primary/30 bg-primary/20 text-xs text-primary"
+                            className="max-w-full shrink-0 cursor-default gap-1 border-primary/30 bg-primary/20 text-xs text-primary"
                           >
                             <span className="min-w-0 truncate">{entry.tag}</span>
                             {entry.canManage && (
@@ -512,7 +526,7 @@ export function ImagePreviewPopup({
                                 type="button"
                                 aria-label={`Tag "${entry.tag}" entfernen`}
                                 data-testid={`image-preview-user-tag-remove-${row.id}-${entry.tag}`}
-                                className="shrink-0 rounded-full hover:text-destructive"
+                                className="shrink-0 cursor-pointer rounded-full hover:text-destructive"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   onRemoveUserTag?.(entry.tag, entry.addedBy);
@@ -524,7 +538,7 @@ export function ImagePreviewPopup({
                           </Badge>
                         ))}
                         {hiddenUserTagCount > 0 && (
-                          <Badge variant="secondary" className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">
+                          <Badge variant="secondary" className="shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary">
                             +{hiddenUserTagCount}
                           </Badge>
                         )}

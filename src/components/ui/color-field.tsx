@@ -149,8 +149,11 @@ export function ColorField({
             type="button"
             aria-label={`${label} auswählen`}
             data-testid={dataTestId ? `${dataTestId}-picker` : undefined}
+            // Kein focus-visible:ring (box-shadow) — siehe Begründung in
+            // ui/input.tsx (derselbe Rand-Überlauf-Effekt). Fokus zeigt sich
+            // stattdessen über die Randfarbe.
             className={cn(
-              "h-8 w-8 shrink-0 rounded-lg border border-input outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              "h-8 w-8 shrink-0 rounded-lg border border-input outline-none focus-visible:border-ring"
             )}
             style={{ backgroundColor: swatchColor }}
           />

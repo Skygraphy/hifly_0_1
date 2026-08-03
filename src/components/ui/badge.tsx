@@ -4,8 +4,21 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+// Kein focus-visible:ring/aria-invalid:ring (box-shadow) — bei diesem
+// großen border-radius (rounded-4xl/Pille) folgt der Ring-Schatten den
+// Ecken sichtbar eckiger als der Rand selbst und wirkt dann wie ein über
+// den Rand hinauslaufender (heller) Rahmen (siehe ui/input.tsx für dieselbe
+// Begründung an anderer Stelle). Betrifft z.B. den "+N"-Overflow-Chip
+// (OverflowBadgesPopover in image-thumbnail-card.tsx), der als echter
+// Popover-Trigger-Button tatsächlich Tastatur-Fokus bekommen kann. Fokus/
+// Fehler zeigen sich stattdessen allein über die Randfarbe. outline-none
+// zusätzlich nötig (fehlte hier, anders als bei Input/Select/Switch/
+// ColorField): ohne das blieb der native Browser-Fokusring (der genauso
+// wenig dem großen border-radius folgt) übrig, selbst nachdem der
+// selbstgebaute Ring entfernt war — genau das hat sich für den User wie
+// ein weiterhin bestehender weißer Rand angefühlt.
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
@@ -13,7 +26,7 @@ const badgeVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+          "bg-destructive/10 text-destructive dark:bg-destructive/20 [a]:hover:bg-destructive/20",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

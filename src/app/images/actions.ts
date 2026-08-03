@@ -252,6 +252,46 @@ export async function searchImageLocations(input: SearchImagesInput): Promise<Im
   }));
 }
 
+export interface RandomImageThumb {
+  id: string;
+  mainLocation: string | null;
+  thumbUrl: string;
+}
+
+/**
+ * Bis zu 5 zufällige Bilder für einen Standort — für die rein dekorative
+ * Vorschau auf der Startseite (siehe standort-thumbnail-preview.tsx),
+ * zwischen dem gewählten Standort-Namen und der Breadcrumb-Navigation.
+ * Nutzt dieselbe Sichtbarkeits-/Standort-Filterung wie searchImages
+ * (buildImageConditions) — anonym erlaubt, wie dort. `order by random()`
+ * statt einer festen Sortierung ist hier bewusst unproblematisch: es geht
+ * um eine kleine, seltene Stichprobe (max. 5 Zeilen), nicht um eine
+ * paginierte Auflistung, bei der ein voller Tabellen-Scan pro Aufruf ins
+ * Gewicht fiele.
+ */
+export async function getRandomImages(input: {
+  administrativeUnitIds?: string[];
+  regionId?: string;
+}): Promise<RandomImageThumb[]> {
+  const session = await auth();
+  const seesHiddenImages = canSeeHiddenImages(session?.user?.role);
+
+  const conditions = buildImageConditions(
+    { ...input, locationQuery: "", tagsQuery: "", offset: 0 },
+    seesHiddenImages
+  );
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const rows = await db
+    .select({ id: images.id, mainLocation: images.mainLocation })
+    .from(images)
+    .where(whereClause)
+    .orderBy(sql`random()`)
+    .limit(5);
+
+  return rows.map((row) => ({ ...row, thumbUrl: thumbUrlFor(row.id) }));
+}
+
 export interface UpdateImageMetadataInput {
   id: string;
   mainLocation: string | null;

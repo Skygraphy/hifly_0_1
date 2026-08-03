@@ -102,7 +102,10 @@ export function ImagesPageClient({
   // werden die Zeilen ersetzt, Skeletons darunter würden dort keinen Sinn
   // ergeben — nur beim Nachladen ist "ein paar Kacheln mehr am Ende" richtig.
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [editTarget, setEditTarget] = useState<ImageSearchRow | null>(null);
+  // Nur die id, nicht die ganze Zeile — editRow wird unten (wie previewRow)
+  // live aus rows abgeleitet, damit ein im Dialog hinzugefügter/entfernter
+  // User-Tag dort sofort sichtbar wird, ohne manuelle Synchronisation.
+  const [editId, setEditId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ImageSearchRow | null>(null);
   // Nur die id, nicht die ganze Zeile — previewRow wird unten live aus rows
   // abgeleitet, damit das Popup automatisch verschwindet, sobald die Zeile
@@ -256,7 +259,7 @@ export function ImagesPageClient({
 
   function handleSaved(updated: ImageSearchRow) {
     setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-    setEditTarget(null);
+    setEditId(null);
   }
 
   // Shift-Klick (isRangeSelect) markiert den Bereich seit dem zuletzt einzeln
@@ -381,6 +384,8 @@ export function ImagesPageClient({
     }
     return colorById;
   }, [rows, standort, units, regions]);
+
+  const editRow = editId ? (rows.find((row) => row.id === editId) ?? null) : null;
 
   const previewIndex = rows.findIndex((row) => row.id === previewId);
   const previewRow = previewIndex >= 0 ? rows[previewIndex] : null;
@@ -532,7 +537,7 @@ export function ImagesPageClient({
           selectedIds={selectedIds}
           onToggleSelect={handleToggleSelect}
           onPreview={(row) => setPreviewId(row.id)}
-          onEdit={setEditTarget}
+          onEdit={(row) => setEditId(row.id)}
           onDelete={setDeleteTarget}
           onAddUserTag={handleAddUserTag}
           onRemoveUserTag={handleRemoveUserTag}
@@ -574,10 +579,13 @@ export function ImagesPageClient({
         ))}
 
       <ImageEditDialog
-        row={editTarget}
+        row={editRow}
         canManagePrintFields={user?.role === "super_admin"}
-        onOpenChange={(open) => !open && setEditTarget(null)}
+        currentUser={user}
+        onOpenChange={(open) => !open && setEditId(null)}
         onSaved={handleSaved}
+        onAddUserTag={(tag) => editRow && handleAddUserTag(editRow.id, tag)}
+        onRemoveUserTag={(tag, addedBy) => editRow && handleRemoveUserTag(editRow.id, tag, addedBy)}
       />
       <ImageDeleteDialog
         row={deleteTarget}
@@ -590,7 +598,7 @@ export function ImagesPageClient({
         canDelete={previewCanDelete}
         currentUser={user}
         onOpenChange={(open) => !open && setPreviewId(null)}
-        onEdit={setEditTarget}
+        onEdit={(row) => setEditId(row.id)}
         onDelete={setDeleteTarget}
         onAddUserTag={(tag) => previewRow && handleAddUserTag(previewRow.id, tag)}
         onRemoveUserTag={(tag, addedBy) => previewRow && handleRemoveUserTag(previewRow.id, tag, addedBy)}
@@ -615,6 +623,22 @@ export function ImagesPageClient({
             type="button"
             variant="destructive"
             size="sm"
+            // Die Standard-destructive-Variante (kräftiges, gesättigtes Rot)
+            // wirkte auf dieser schwebenden Glas-Pille — umgeben vom warmen
+            // Coral-Akzent (border-primary/20, Badges etc.) — wie ein
+            // Fremdkörper. bg-primary färbt die Fläche in denselben
+            // Coral-Ton wie der Rest der Leiste, text-destructive bleibt als
+            // Gefahren-Signal (Rot) erhalten — dieselbe "coral-fläche +
+            // roter Akzent"-Kombination wie die Badges auf der Kachel, nur
+            // mit Rot statt Primary als Textfarbe. Kein eigener Rand (auf
+            // Wunsch des Users) — die Fläche grenzt sich allein über die
+            // Coral-Füllung von der dunklen Glas-Pille ab. Die
+            // dark:bg-destructive/*-Klassen aus der Basisvariante müssen
+            // explizit mit dark:-Präfix überschrieben werden — ein
+            // unpräfixiertes bg-primary/15 verdrängt ein dark:bg-destructive/20
+            // NICHT (unterschiedliche Modifier-Gruppen für tailwind-merge),
+            // die App läuft aber standardmäßig im Dark Mode.
+            className="border-transparent bg-primary/15 text-destructive hover:bg-primary/25 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-primary/15 dark:hover:bg-primary/25 dark:focus-visible:ring-destructive/40"
             data-testid="images-bulk-delete"
             onClick={() => setIsBulkDeleteOpen(true)}
           >

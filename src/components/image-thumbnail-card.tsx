@@ -56,12 +56,14 @@ function OverflowBadgesPopover<T>({
   testId,
   renderItem,
   onOpenChange,
+  className,
 }: {
   hiddenCount: number;
   items: T[];
   testId: string;
   renderItem: (item: T) => ReactNode;
   onOpenChange?: (open: boolean) => void;
+  className?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -81,9 +83,21 @@ function OverflowBadgesPopover<T>({
         aria-label={`Alle ${items.length} anzeigen`}
         data-testid={testId}
         onClick={(event) => event.stopPropagation()}
+        // data-popup-open statt hover: — dieser Chip sitzt direkt neben dem
+        // "+"-Eingabefeld, das beim Speichern eines neuen Tags wieder zum
+        // kleinen Button einklappt. Bleibt die Maus dabei stehen (Finger
+        // tippt weiter auf der Tastatur), landet der Cursor rein geometrisch
+        // auf dem jetzt dorthin gerutschten Chip — echtes CSS-:hover
+        // reagiert auf reine Positions-Überschneidung, unabhängig davon, ob
+        // sich die Maus tatsächlich bewegt hat, und blieb dadurch optisch
+        // "hängen" (per Test reproduziert: matches(':hover') === true, ohne
+        // reales Zeigerereignis). data-[popup-open] hängt dagegen an Base
+        // UIs eigener Interaktionslogik, die ein echtes Pointer-Event
+        // braucht — bleibt in genau diesem Fall korrekt aus.
         className={cn(
           badgeVariants({ variant: "secondary" }),
-          "shrink-0 border-primary/30 bg-primary/20 text-[10px] text-primary hover:bg-primary/30"
+          "shrink-0 border-primary/30 bg-primary/20 text-[10px] text-primary data-[popup-open]:bg-primary/30",
+          className
         )}
       >
         +{hiddenCount}
@@ -92,6 +106,74 @@ function OverflowBadgesPopover<T>({
         {items.map(renderItem)}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Die Badges einer Zeile (Nebenadressen/Tags/User-Tags), die tatsächlich
+ * (per useFittingCount) in die Zeile passen — flex-nowrap + shrink-0 pro
+ * Badge, damit die ANZAHL der gezeigten Badges auf Platzmangel reagiert statt
+ * jedes einzelne bis zur Unlesbarkeit zu stauchen. Ausnahme: das letzte
+ * sichtbare Badge — das darf sich per Ellipsis in den Restplatz hinein
+ * kürzen, statt komplett zu verschwinden (min-w-8 nur als harte Untergrenze
+ * gegen ein auf 0 kollabierendes Badge, keine "Lesbarkeits"-Schwelle —
+ * sobald irgendein Rest an Platz übrig ist, soll er per Ellipsis genutzt
+ * werden, nicht das ganze Badge in den "+N"-Zähler wandern). Das gilt
+ * UNBEDINGT, auch wenn `hiddenCount` (noch) 0 ist: bei genau so vielen
+ * Kandidaten, dass der Pool-Deckel (MAX_VISIBLE_*) nie greift, ist
+ * hiddenCount beim allerersten Passform-Check (alle Kandidaten sichtbar)
+ * zwangsläufig 0 — ein `hiddenCount > 0`-Gate hätte dem letzten Badge genau
+ * in diesem Moment die Schrumpf-Fähigkeit verweigert und es bei Platzmangel
+ * direkt ganz versteckt, statt es erst zu kürzen (per Messung bestätigt: 2
+ * User-Tags, von denen eines nicht mehr passte, verschwand ohne Ellipsis
+ * komplett). Schadet nicht, wenn ohnehin alles passt: `shrink`+`min-w-8`
+ * wird dann einfach nie wirksam. Der Aufrufer muss das nachfolgende Element
+ * (i.d.R. der "+N"-Chip) selbst mit `ml-auto` rechtsbündig verankern — das
+ * garantiert unabhängig von der genauen Kürzungs-/Zählungs-Mathematik, dass
+ * dort nie eine Lücke bleibt.
+ *
+ * Der `ref`-Container selbst braucht `flex-1`: ohne flex-grow schrumpft ein
+ * Flex-Item standardmäßig auf die Breite seines EIGENEN Inhalts, sobald der
+ * kleiner ist als der verfügbare Platz — die per useFittingCount gemessene
+ * `clientWidth` wäre dann selbstreferenziell (schrumpft mit dem Inhalt mit)
+ * statt den tatsächlich verfügbaren Platz widerzuspiegeln, wodurch ein
+ * Badge, das eigentlich (ggf. gekürzt) noch gepasst hätte, fälschlich schon
+ * vorher ganz im "+N"-Zähler verschwindet (per Messung bestätigt: dieselbe
+ * Zeile maß 208px Container-Breite bei 4 sichtbaren Badges, aber nur 200px
+ * bei 3 — 8px echter Restplatz blieben so ungenutzt).
+ */
+function FittingBadges<T>({
+  items,
+  getKey,
+  badgeClassName,
+  children,
+}: {
+  items: T[];
+  getKey: (item: T) => string;
+  badgeClassName: string;
+  children: (item: T) => ReactNode;
+}) {
+  return (
+    <>
+      {items.map((item, index) => {
+        const isTrailing = index === items.length - 1;
+        return (
+          <Badge
+            // Suffix im Key, der sich mit isTrailing ändert: ein
+            // wiederverwendetes DOM-Element behielt beim Wechsel von
+            // shrink-0 zu shrink seine vorherige (volle) Breite, wodurch
+            // useFittingCount ein Badge zu viel wegkürzte (per Messung
+            // bestätigt) — der Key-Wechsel erzwingt stattdessen ein
+            // frisches Element.
+            key={`${getKey(item)}-${isTrailing ? "trailing" : "full"}`}
+            variant="secondary"
+            className={cn(badgeClassName, isTrailing ? "min-w-8 shrink" : "shrink-0")}
+          >
+            {children(item)}
+          </Badge>
+        );
+      })}
+    </>
   );
 }
 
@@ -225,6 +307,15 @@ export function ImageThumbnailCard({
   const [newTagValue, setNewTagValue] = useState("");
   const [isLoginHintOpen, setIsLoginHintOpen] = useState(false);
   const [isOverflowPopoverOpen, setIsOverflowPopoverOpen] = useState(false);
+  // Echtes onMouseEnter/-Leave statt CSS hover: — dasselbe Problem wie beim
+  // "+N"-Chip (siehe OverflowBadgesPopover-Kommentar): dieser Button
+  // erscheint erst NACH einem Layout-Reflow (Eingabefeld → "+"-Button,
+  // nach Absenden eines Tags) wieder an dieser Stelle. Bleibt der Mauszeiger
+  // dabei unbewegt genau über der neuen Button-Position, aktiviert der
+  // Browser CSS :hover rein geometrisch nach, ganz ohne echtes Pointer-
+  // Event — JS-Mouse-Events feuern dagegen nur bei tatsächlicher
+  // Mausbewegung und sind dagegen immun.
+  const [isAddButtonHovered, setIsAddButtonHovered] = useState(false);
   const isPortrait = dimensions !== null && dimensions.width < dimensions.height;
 
   const checkOrientation = useCallback((img: HTMLImageElement) => {
@@ -274,7 +365,11 @@ export function ImageThumbnailCard({
     }),
   }));
   const userTagCandidates = userTagsWithPermission.slice(0, MAX_VISIBLE_TAGS);
-  const [userTagsRowRef, userTagsFitCount] = useFittingCount(userTagCandidates.length);
+  // isAddingTag als zusätzlicher Reset-Trigger: siehe Kommentar in
+  // use-fitting-count.ts — ohne das bleibt die Zeile nach dem Einklappen des
+  // Eingabefelds auf einem zuvor (wegen des breiteren Felds) reduzierten
+  // Stand hängen, obwohl wieder mehr Badges passen würden.
+  const [userTagsRowRef, userTagsFitCount] = useFittingCount(userTagCandidates.length, isAddingTag);
   const visibleUserTags = userTagCandidates.slice(0, userTagsFitCount);
   const hiddenUserTagCount = userTagsWithPermission.length - visibleUserTags.length;
 
@@ -283,6 +378,13 @@ export function ImageThumbnailCard({
     if (trimmed) onAddUserTag?.(trimmed);
     setNewTagValue("");
     setIsAddingTag(false);
+    // Das Eingabefeld ersetzt den "+"-Button, solange isAddingTag true ist —
+    // der Button wird dabei aus dem DOM entfernt, BEVOR ein mouseleave darauf
+    // feuern kann. Ohne dieses Zurücksetzen bliebe isAddButtonHovered auf dem
+    // Stand vom letzten echten mouseenter hängen (meist true, weil man den
+    // Button ja anklickt, um das Feld zu öffnen) — der Button käme dauerhaft
+    // eingefärbt zurück, unabhängig von der tatsächlichen Mausposition.
+    setIsAddButtonHovered(false);
   }
 
   return (
@@ -393,7 +495,8 @@ export function ImageThumbnailCard({
                 // Icon-Button (der einzige reine Trash-Icon-Button im Projekt,
                 // sonst nutzt "destructive" überall Text-Buttons wie "Löschen"
                 // in AlertDialogs) deutlicher als Gefahren-/Warnaktion wirkt.
-                className="border border-destructive/40 bg-destructive/30 hover:bg-destructive/50"
+                // Kein Rand (auf Wunsch des Users).
+                className="border-transparent bg-destructive/30 hover:bg-destructive/50"
                 aria-label="Löschen"
                 data-testid={`image-delete-${row.id}`}
                 onClick={(event) => {
@@ -473,42 +576,22 @@ export function ImageThumbnailCard({
                   Informationen. Signpost (Wegweiser zu mehreren benannten
                   Orten) passt inhaltlich zu "alternative/weitere Adressen". */}
               <Signpost className="mt-0.5 size-3 shrink-0 text-primary" />
-              {/* flex-nowrap + echte Breitenmessung (useFittingCount) statt
-                  flex-wrap ODER flex-shrink auf jedem Badge: eine einzige
-                  Zeile pro Kategorie (User-Vorgabe), aber OHNE dass Badges
-                  bis zur Unlesbarkeit gestaucht werden (das war das Problem
-                  am reinen CSS-shrink-Ansatz) — stattdessen sinkt bei
-                  Platzmangel die ANZAHL der gezeigten Badges, jedes einzelne
-                  bleibt an seiner eigenen max-w-Grenze lesbar. */}
-              <div ref={secondaryLocationsRowRef} className="flex flex-nowrap items-center gap-1 overflow-hidden">
-                {visibleSecondaryLocations.map((location) => (
-                  <Badge
-                    key={location}
-                    variant="secondary"
-                    // max-w-full statt eines festen px-Werts: jedes Badge
-                    // bekommt so viel Platz wie sein Inhalt braucht, bis hin
-                    // zur vollen Zeilenbreite — Ellipsis greift dadurch nur
-                    // noch, wenn ein einzelner Ortsname allein schon breiter
-                    // als die ganze Zeile ist, nicht mehr bei einer
-                    // willkürlichen festen Grenze (die z.B. "Diese Gasse"
-                    // unnötig abgeschnitten hatte, obwohl Platz da war).
-                    // shrink-0 bleibt: die ANZAHL der Badges passt sich schon
-                    // über useFittingCount an, nicht die Breite der
-                    // einzelnen — sonst würden mehrere Badges gemeinsam bis
-                    // zur Unlesbarkeit gestaucht.
-                    className="max-w-full shrink-0 border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
-                  >
-                    {/* truncate auf innerem <span>, nicht direkt auf dem
-                        (Flex-)Badge — siehe Kommentar bei der Hauptadresse
-                        oben. */}
+              <div ref={secondaryLocationsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+                <FittingBadges
+                  items={visibleSecondaryLocations}
+                  getKey={(location) => location}
+                  badgeClassName="max-w-full border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+                >
+                  {(location) => (
                     <TruncatedBadgeText
                       text={location}
                       testId={`image-location-hint-${row.id}-${location}`}
                       onOpenChange={setIsOverflowPopoverOpen}
                     />
-                  </Badge>
-                ))}
+                  )}
+                </FittingBadges>
                 <OverflowBadgesPopover
+                  className="ml-auto"
                   hiddenCount={hiddenLocationCount}
                   items={row.secondaryLocations}
                   testId={`image-locations-overflow-${row.id}`}
@@ -536,23 +619,22 @@ export function ImageThumbnailCard({
           {visibleTags.length > 0 && (
             <div className="flex items-start gap-1">
               <TagIcon className="mt-0.5 size-3 shrink-0 text-primary" />
-              <div ref={tagsRowRef} className="flex flex-nowrap items-center gap-1 overflow-hidden">
-                {visibleTags.map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant="secondary"
-                    className="max-w-full shrink-0 border-primary/30 bg-primary/20 text-[10px] text-primary"
-                  >
-                    {/* truncate auf innerem <span>, nicht direkt auf dem
-                        (Flex-)Badge — siehe Kommentar bei der Hauptadresse. */}
+              <div ref={tagsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+                <FittingBadges
+                  items={visibleTags}
+                  getKey={(tag) => tag}
+                  badgeClassName="max-w-full border-primary/30 bg-primary/20 text-[10px] text-primary"
+                >
+                  {(tag) => (
                     <TruncatedBadgeText
                       text={tag}
                       testId={`image-tag-hint-${row.id}-${tag}`}
                       onOpenChange={setIsOverflowPopoverOpen}
                     />
-                  </Badge>
-                ))}
+                  )}
+                </FittingBadges>
                 <OverflowBadgesPopover
+                  className="ml-auto"
                   hiddenCount={hiddenTagCount}
                   items={row.tags}
                   testId={`image-tags-overflow-${row.id}`}
@@ -578,41 +660,168 @@ export function ImageThumbnailCard({
           <div className="flex items-start gap-1" data-testid={`image-user-tags-${row.id}`}>
             <UserTagsIcon className="mt-0.5 size-3 shrink-0 text-primary" />
             <div ref={userTagsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
-              {visibleUserTags.map((entry) => (
-                // Badge bleibt shrink-0 (die ANZAHL passt sich über
-                // useFittingCount an, nicht die Breite jedes einzelnen
-                // Badges) — truncate sitzt auf einem eigenen inneren <span>
-                // statt direkt auf dem Badge: hier steckt (anders als bei
-                // Nebenadressen/Tags) noch der Entfernen-Button mit im
-                // Badge, truncate träfe sonst den ganzen Flex-Inhalt inkl.
-                // Button statt nur den Tag-Text.
-                <Badge
-                  key={`${entry.tag}-${entry.addedBy ?? "legacy"}`}
-                  variant="secondary"
-                  className="max-w-full shrink-0 gap-1 border-primary/30 bg-primary/20 text-[10px] text-primary"
+              {/* Während der Eingabe (isAddingTag) verschwindet die
+                  Badge-Liste zugunsten des Eingabefelds — siehe dessen
+                  eigenen Kommentar weiter unten. Außerhalb der Eingabe
+                  bleibt diese Zeile exakt die eingefrorene FittingBadges-
+                  Anzeige (siehe Kommentar dort), unverändert. */}
+              {!isAddingTag && (
+                <FittingBadges
+                  items={visibleUserTags}
+                  getKey={(entry) => `${entry.tag}-${entry.addedBy ?? "legacy"}`}
+                  badgeClassName="max-w-full gap-1 border-primary/30 bg-primary/20 text-[10px] text-primary"
                 >
-                  <TruncatedBadgeText
-                    text={entry.tag}
-                    testId={`image-user-tag-hint-${row.id}-${entry.tag}`}
-                    onOpenChange={setIsOverflowPopoverOpen}
-                  />
-                  {entry.canManage && (
-                    <button
-                      type="button"
-                      aria-label={`Tag "${entry.tag}" entfernen`}
-                      data-testid={`image-user-tag-remove-${row.id}-${entry.tag}`}
-                      className="shrink-0 rounded-full hover:text-destructive"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRemoveUserTag?.(entry.tag, entry.addedBy);
-                      }}
-                    >
-                      <X className="size-2.5" />
-                    </button>
+                  {(entry) => (
+                    <>
+                      <TruncatedBadgeText
+                        text={entry.tag}
+                        testId={`image-user-tag-hint-${row.id}-${entry.tag}`}
+                        onOpenChange={setIsOverflowPopoverOpen}
+                      />
+                      {entry.canManage && (
+                        <button
+                          type="button"
+                          aria-label={`Tag "${entry.tag}" entfernen`}
+                          data-testid={`image-user-tag-remove-${row.id}-${entry.tag}`}
+                          className="shrink-0 rounded-full hover:text-destructive"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemoveUserTag?.(entry.tag, entry.addedBy);
+                          }}
+                        >
+                          <X className="size-2.5" />
+                        </button>
+                      )}
+                    </>
                   )}
-                </Badge>
-              ))}
+                </FittingBadges>
+              )}
+              {/* "+" bleibt IN der normalen Zeilenreihenfolge (shrink-0,
+                  kein ml-auto) — sitzt also immer unmittelbar rechts vom
+                  letzten sichtbaren User-Tag, nicht an den Zeilenrand
+                  verschoben. Nur "+N" (weiter unten) bekommt sein eigenes
+                  ml-auto und rückt dadurch für sich an den rechten Rand —
+                  ist die Zeile ohnehin randvoll, bleibt zwischen "+" und
+                  "+N" kein Platz für die Marge, beide landen dann von
+                  selbst direkt nebeneinander. Während der Eingabe
+                  (isAddingTag) ersetzt das Eingabefeld den Button an
+                  gleicher Stelle, bekommt aber flex-1: die Badge-Liste ist
+                  ja ausgeblendet (s.o.), das Feld füllt dadurch den
+                  kompletten Platz von ganz links bis kurz vor "+N", das
+                  weiterhin shrink-0 bleibt und so sein Plätzchen ganz
+                  rechts behält. */}
+              {currentUser?.id ? (
+                isAddingTag ? (
+                  <input
+                    autoFocus
+                    value={newTagValue}
+                    data-testid={`image-user-tag-input-${row.id}`}
+                    onChange={(event) => setNewTagValue(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitNewTag();
+                      }
+                      if (event.key === "Escape") {
+                        setIsAddingTag(false);
+                        setNewTagValue("");
+                        setIsAddButtonHovered(false);
+                      }
+                    }}
+                    onBlur={submitNewTag}
+                    placeholder="Tag…"
+                    // Vorher ein unauffälliges, transparentes Feld mit
+                    // dünnem grauem Rand — wirkte neben den satten
+                    // Coral-Badges wie ein Fremdkörper. Jetzt derselbe
+                    // Pill-Stil wie die Tag-Badges daneben (rounded-4xl,
+                    // h-5, Coral-Fläche/-Text), dazu ein kurzes Einblenden
+                    // beim Öffnen (zoom-in/fade-in). appearance-none/
+                    // bg-clip-padding gegen native Browser-Eigendarstellung
+                    // von <input>. KEIN focus:ring (box-shadow) — bei diesem
+                    // großen border-radius (rounded-4xl/Pille) folgt der
+                    // Ring-Schatten die Ecken sichtbar eckiger als der
+                    // Rand selbst und wirkte dadurch wie ein über den Rand
+                    // hinauslaufender Hintergrund (vom User bestätigt).
+                    // Fokus zeigt sich stattdessen allein über
+                    // Rand-/Flächenfarbe (border-primary, bg-primary/30).
+                    // flex-1/min-w-0 statt fester w-20: das Feld soll beim
+                    // Öffnen die ganze Zeile ausfüllen (bis auf den Platz
+                    // für "+N" rechts, siehe Kommentar oben).
+                    className="h-5 min-w-0 flex-1 animate-in appearance-none rounded-4xl border border-primary/40 bg-primary/20 bg-clip-padding px-2 text-[10px] text-primary placeholder:text-primary/50 zoom-in-95 fade-in-0 duration-150 outline-none transition-colors focus:border-primary focus:bg-primary/30"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    aria-label="Eigenen Tag hinzufügen"
+                    data-testid={`image-user-tag-add-${row.id}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsAddingTag(true);
+                    }}
+                    onMouseEnter={() => setIsAddButtonHovered(true)}
+                    onMouseLeave={() => setIsAddButtonHovered(false)}
+                    className={cn(
+                      // outline-none nötig: sonst bleibt bei Fokus (ein Klick
+                      // auf <button>/PopoverTrigger fokussiert es in Chrome)
+                      // der native Browser-Fokusring sichtbar, der dem
+                      // rounded-full hier nicht sauber folgt und wie ein
+                      // heller Extra-Rand um den gestrichelten Kreis wirkt —
+                      // derselbe Fund wie bei ui/badge.tsx.
+                      "flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed border-primary/40 text-primary outline-none focus-visible:border-primary",
+                      isAddButtonHovered && "bg-primary/10"
+                    )}
+                  >
+                    <Plus className="size-3" />
+                  </button>
+                )
+              ) : (
+                // Anonyme Besucher dürfen keine Tags anlegen (onAddUserTag
+                // greift serverseitig ohnehin nur mit Session) — der
+                // "+"-Button bleibt trotzdem sichtbar, öffnet aber statt des
+                // Eingabefelds einen Hinweis-Popover Richtung Login, damit
+                // die Möglichkeit ("man könnte hier taggen") überhaupt erst
+                // entdeckt wird.
+                <Popover open={isLoginHintOpen} onOpenChange={setIsLoginHintOpen}>
+                  <PopoverTrigger
+                    type="button"
+                    aria-label="Anmelden, um eigene Tags hinzuzufügen"
+                    data-testid={`image-user-tag-add-${row.id}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseEnter={() => setIsAddButtonHovered(true)}
+                    onMouseLeave={() => setIsAddButtonHovered(false)}
+                    className={cn(
+                      // outline-none nötig: sonst bleibt bei Fokus (ein Klick
+                      // auf <button>/PopoverTrigger fokussiert es in Chrome)
+                      // der native Browser-Fokusring sichtbar, der dem
+                      // rounded-full hier nicht sauber folgt und wie ein
+                      // heller Extra-Rand um den gestrichelten Kreis wirkt —
+                      // derselbe Fund wie bei ui/badge.tsx.
+                      "flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed border-primary/40 text-primary outline-none focus-visible:border-primary",
+                      isAddButtonHovered && "bg-primary/10"
+                    )}
+                  >
+                    <Plus className="size-3" />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-52 p-3 text-xs"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <p className="text-muted-foreground">Melde dich an, um eigene Tags hinzuzufügen.</p>
+                    <Link
+                      href="/login"
+                      data-testid={`image-user-tag-login-link-${row.id}`}
+                      className="mt-2 inline-block font-medium text-primary hover:underline"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Jetzt anmelden
+                    </Link>
+                  </PopoverContent>
+                </Popover>
+              )}
               <OverflowBadgesPopover
+                className="ml-auto"
                 hiddenCount={hiddenUserTagCount}
                 items={userTagsWithPermission}
                 testId={`image-user-tags-overflow-${row.id}`}
@@ -641,76 +850,6 @@ export function ImageThumbnailCard({
                   </Badge>
                 )}
               />
-              {currentUser?.id ? (
-                isAddingTag ? (
-                  <input
-                    autoFocus
-                    value={newTagValue}
-                    data-testid={`image-user-tag-input-${row.id}`}
-                    onChange={(event) => setNewTagValue(event.target.value)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        submitNewTag();
-                      }
-                      if (event.key === "Escape") {
-                        setIsAddingTag(false);
-                        setNewTagValue("");
-                      }
-                    }}
-                    onBlur={submitNewTag}
-                    placeholder="Tag…"
-                    className="w-16 shrink-0 rounded border border-primary/30 bg-transparent px-1 text-[10px] text-white outline-none"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    aria-label="Eigenen Tag hinzufügen"
-                    data-testid={`image-user-tag-add-${row.id}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setIsAddingTag(true);
-                    }}
-                    className="flex size-4 shrink-0 items-center justify-center rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/10"
-                  >
-                    <Plus className="size-2.5" />
-                  </button>
-                )
-              ) : (
-                // Anonyme Besucher dürfen keine Tags anlegen (onAddUserTag
-                // greift serverseitig ohnehin nur mit Session) — der
-                // "+"-Button bleibt trotzdem sichtbar, öffnet aber statt des
-                // Eingabefelds einen Hinweis-Popover Richtung Login, damit
-                // die Möglichkeit ("man könnte hier taggen") überhaupt erst
-                // entdeckt wird.
-                <Popover open={isLoginHintOpen} onOpenChange={setIsLoginHintOpen}>
-                  <PopoverTrigger
-                    type="button"
-                    aria-label="Anmelden, um eigene Tags hinzuzufügen"
-                    data-testid={`image-user-tag-add-${row.id}`}
-                    onClick={(event) => event.stopPropagation()}
-                    className="flex size-4 shrink-0 items-center justify-center rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/10"
-                  >
-                    <Plus className="size-2.5" />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="start"
-                    className="w-52 p-3 text-xs"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <p className="text-muted-foreground">Melde dich an, um eigene Tags hinzuzufügen.</p>
-                    <Link
-                      href="/login"
-                      data-testid={`image-user-tag-login-link-${row.id}`}
-                      className="mt-2 inline-block font-medium text-primary hover:underline"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      Jetzt anmelden
-                    </Link>
-                  </PopoverContent>
-                </Popover>
-              )}
             </div>
           </div>
         </div>
