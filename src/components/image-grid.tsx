@@ -19,6 +19,7 @@ export function ImageGrid({
   onDelete,
   onAddUserTag,
   onRemoveUserTag,
+  onToggleFavorite,
   dotColorById,
   onLocateOnMap,
 }: {
@@ -31,6 +32,7 @@ export function ImageGrid({
   onDelete: (row: ImageSearchRow) => void;
   onAddUserTag: (id: string, tag: string) => void;
   onRemoveUserTag: (id: string, tag: string, addedBy: string | null) => void;
+  onToggleFavorite: (id: string) => void;
   /** Standort-Farbe pro Bild-id, dieselbe wie der zugehörige Karten-Marker
    * (siehe dotColorById in images-page-client.tsx) — für den Punkt unten
    * rechts auf jeder Kachel. */
@@ -64,6 +66,7 @@ export function ImageGrid({
             currentUser={user}
             onAddUserTag={(tag) => onAddUserTag(row.id, tag)}
             onRemoveUserTag={(tag, addedBy) => onRemoveUserTag(row.id, tag, addedBy)}
+            onToggleFavorite={() => onToggleFavorite(row.id)}
             dotColor={dotColorById.get(row.id) ?? FALLBACK_MARKER_COLOR}
             onLocateOnMap={onLocateOnMap}
           />

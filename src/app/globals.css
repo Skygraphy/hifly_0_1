@@ -45,6 +45,30 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Weiches Pulsieren für den Standort-Punkt (ImageMapDot) beim Hovern —
+     ersetzt ein einmaliges hover:scale-110 (samt transition-transform), das
+     bei jedem Hover-Wechsel wie ein abruptes "Wackeln" statt einer sanften
+     Bewegung wirkte. Kombiniert Wachsen (scale) MIT Opazität — reines
+     scale() auf dem äußeren Klickbereich (size-5, dicht an der Kachel-Ecke
+     mit overflow-hidden positioniert) hatte den sichtbaren Punkt bei den
+     meisten Kacheln asymmetrisch abgeschnitten und dadurch wie "versetzt"
+     wirken lassen. Jetzt wächst NUR der innere, kleinere Punkt (siehe
+     image-map-dot.tsx: group-hover auf dem inneren span statt hover auf dem
+     äußeren button) — reichlich Randabstand zum size-5-Klickbereich, kann
+     also nicht mehr an der Kachel-Kante anstoßen/abgeschnitten werden. */
+  --animate-soft-pulse: soft-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.75;
+  }
 }
 
 body {
@@ -66,7 +90,7 @@ body {
   --card-foreground: oklch(0.2 0.01 40);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.01 40);
-  --primary: #d9603f;
+  --primary: #db504b;
   --primary-foreground: oklch(0.99 0.005 60);
   --secondary: oklch(0.95 0.012 50);
   --secondary-foreground: oklch(0.28 0.02 40);
@@ -77,7 +101,7 @@ body {
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.9 0.014 50);
   --input: oklch(0.9 0.014 50);
-  --ring: #d9603f;
+  --ring: #db504b;
   --chart-1: oklch(0.7 0.15 40);
   --chart-2: oklch(0.6 0.12 200);
   --chart-3: oklch(0.5 0.1 260);
@@ -86,12 +110,12 @@ body {
   --radius: 0.625rem;
   --sidebar: oklch(0.99 0.005 60);
   --sidebar-foreground: oklch(0.2 0.01 40);
-  --sidebar-primary: #d9603f;
+  --sidebar-primary: #db504b;
   --sidebar-primary-foreground: oklch(0.99 0.005 60);
   --sidebar-accent: oklch(0.93 0.03 40);
   --sidebar-accent-foreground: oklch(0.32 0.08 30);
   --sidebar-border: oklch(0.9 0.014 50);
-  --sidebar-ring: #d9603f;
+  --sidebar-ring: #db504b;
 }
 
 /*
@@ -119,8 +143,10 @@ body {
      unterscheiden, nur der dünne Rand zeigt die Kante. */
   --popover: oklch(0.145 0 0);
   --popover-foreground: oklch(0.85 0 0);
-  /* Coral als einzige Akzentfarbe (statt Supabase-Grün): dunkler Text auf dem hellen Ton für guten Kontrast */
-  --primary: #FF7F50;
+  /* Coral als einzige Akzentfarbe (statt Supabase-Grün): dunkler Text auf dem hellen Ton für guten Kontrast.
+     Pantone 16-1546 "Living Coral" (#FF6F61) statt des vorherigen, wärmer-orangen #FF7F50 — auf
+     Wunsch des Users, dem der Gesamteindruck zu orange war. */
+  --primary: #FF6F61;
   --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.85 0 0);
@@ -131,7 +157,7 @@ body {
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: #FF7F50;
+  --ring: #FF6F61;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

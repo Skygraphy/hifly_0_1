@@ -40,11 +40,19 @@ export function ImageMapDot({
         onClick();
       }}
       className={cn(
-        "z-20 flex size-5 items-center justify-center rounded-full outline-none transition-transform hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/50",
+        "group z-20 flex size-5 items-center justify-center rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
         className
       )}
     >
-      <span className={cn("size-2.5 rounded-full", bordered && "border border-white/40")} style={{ backgroundColor: color }} />
+      {/* Animation sitzt auf dem INNEREN, kleinen Punkt (nicht auf dem
+          äußeren size-5-Klickbereich) — siehe Begründung bei
+          --animate-soft-pulse in globals.css: das Wachsen bleibt so
+          komplett innerhalb des ohnehin großzügigeren Klickbereichs, statt
+          an der Kachel-Kante abgeschnitten zu werden. */}
+      <span
+        className={cn("size-2.5 rounded-full group-hover:animate-soft-pulse", bordered && "border border-white/40")}
+        style={{ backgroundColor: color }}
+      />
     </button>
   );
 }

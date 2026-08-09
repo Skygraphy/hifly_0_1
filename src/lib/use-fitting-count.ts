@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 /**
  * "Zeige so viele Badges wie tatsächlich in eine Zeile passen, der Rest als
@@ -16,6 +16,18 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
  * ResizeObserver setzt die Zählung bei Größenänderung zurück auf itemCount,
  * damit bei mehr verfügbarem Platz auch wieder mehr angezeigt wird (sonst
  * bliebe ein einmal reduzierter Stand für immer hängen).
+ *
+ * Callback-Ref (State) statt `useRef`: ein reiner `useRef` benachrichtigt
+ * React NICHT, wenn das referenzierte DOM-Element attacht — bei wenigen
+ * Kandidaten (Kachel: 2–4) läuft der Mess-Effekt trotzdem noch oft genug
+ * (durch andere Renders im selben Commit) erneut, dass es zufällig
+ * funktioniert; bei vielen Kandidaten (per Messung bestätigt: 28 User-Tags)
+ * blieb `containerRef.current` bei JEDEM Effekt-Durchlauf `null` — die Zeile
+ * maß nie einen Überlauf und zeigte dadurch ausnahmslos ALLE Kandidaten an,
+ * die dann sichtbar aus dem Panel herausliefen. Mit dem Element in State
+ * (via Callback-Ref gesetzt) löst React beim tatsächlichen Attach-Zeitpunkt
+ * zuverlässig einen Re-Render aus, der Mess-Effekt bekommt garantiert ein
+ * echtes Element zu sehen.
  *
  * `resetKey` (optional): weiterer Auslöser für denselben Reset-auf-itemCount,
  * zusätzlich zu einer Änderung von `itemCount` selbst. Nötig, wenn sich die
@@ -33,8 +45,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 export function useFittingCount(
   itemCount: number,
   resetKey?: unknown
-): [React.RefObject<HTMLDivElement | null>, number] {
-  const containerRef = useRef<HTMLDivElement>(null);
+): [(node: HTMLDivElement | null) => void, number] {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = useState(itemCount);
 
   // Neu ansetzen, sobald sich die Kandidatenmenge selbst ändert (andere
@@ -42,24 +54,31 @@ export function useFittingCount(
   // reduzierter Stand hängen, obwohl die neuen Inhalte vielleicht wieder
   // vollständig passen.
   useLayoutEffect(() => {
+    // Gewollter Reset auf itemCount bei Wechsel von Kandidatenmenge/
+    // resetKey, siehe Kommentar oben.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisibleCount(itemCount);
   }, [itemCount, resetKey]);
 
+  // Bewusst OHNE Dependency-Array: dieser Effekt muss nach JEDEM Render neu
+  // prüfen (auch nach den eigenen setState-Aufrufen), um die Anzahl
+  // schrittweise bis zur tatsächlich passenden Größe zu reduzieren — ein
+  // deklariertes Array würde genau diese Konvergenz-Schleife verhindern.
   useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el || visibleCount <= 1) return;
-    if (el.scrollWidth > el.clientWidth) {
+    if (!container || visibleCount <= 1) return;
+    if (container.scrollWidth > container.clientWidth) {
+      // Gewollte, konvergierende Mess-Schleife — siehe Kommentar oben.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVisibleCount((count) => Math.max(1, count - 1));
     }
   });
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    if (!container) return;
     const observer = new ResizeObserver(() => setVisibleCount(itemCount));
-    observer.observe(el);
+    observer.observe(container);
     return () => observer.disconnect();
-  }, [itemCount]);
+  }, [container, itemCount]);
 
-  return [containerRef, itemCount === 0 ? 0 : Math.min(visibleCount, itemCount)];
+  return [setContainer, itemCount === 0 ? 0 : Math.min(visibleCount, itemCount)];
 }

@@ -7,7 +7,13 @@ const { authMock, dbMock, s3Mock } = vi.hoisted(() => {
   const selectOffsetMock = vi.fn().mockResolvedValue([]);
   const selectLimitMock = vi.fn(() => ({ offset: selectOffsetMock }));
   const selectOrderByMock = vi.fn(() => ({ limit: selectLimitMock }));
-  const selectWhereMock = vi.fn(() => ({ orderBy: selectOrderByMock }));
+  // getImageById-Kette: select({...dieselben Felder inkl. mainLocation}).from().where().limit(1)
+  // — KEIN .orderBy() dazwischen (nur eine Zeile per id), daher ein zweiter,
+  // direkt awaitbarer .limit-Zweig als Geschwister von .orderBy auf
+  // demselben where()-Ergebnis (beide Aufrufer teilen sich denselben
+  // Kandidaten-Filter "mainLocation" in der selectMock-Weiche unten).
+  const getByIdRowsMock = vi.fn().mockResolvedValue([]);
+  const selectWhereMock = vi.fn(() => ({ orderBy: selectOrderByMock, limit: () => getByIdRowsMock() }));
   const selectFromMock = vi.fn(() => ({ where: selectWhereMock }));
 
   // Zusätzliche count(*)-Query für SearchImagesResult.total: select({count}).from().where()
@@ -36,21 +42,37 @@ const { authMock, dbMock, s3Mock } = vi.hoisted(() => {
   const ownershipWhereMock = vi.fn(() => ownershipQueryResult());
   const ownershipFromMock = vi.fn(() => ({ where: ownershipWhereMock }));
 
+  // toggleFavorite-Existenzprüfung: select({userId}).from().where().limit(1)
+  // — eigene Kette statt der ownership*-Mocks (auch wenn strukturell
+  // identisch), da Favoriten kein Owner-Konzept haben und eine gemeinsame
+  // Mock-Variable hier eher verwirren als Code sparen würde.
+  const favoritesRowsMock = vi.fn().mockResolvedValue([]);
+  function favoritesQueryResult() {
+    const promise = favoritesRowsMock();
+    (promise as unknown as { limit: () => unknown }).limit = () => favoritesQueryResult();
+    return promise;
+  }
+  const favoritesWhereMock = vi.fn(() => favoritesQueryResult());
+  const favoritesFromMock = vi.fn(() => ({ where: favoritesWhereMock }));
+
   const selectMock = vi.fn((projection: Record<string, unknown>) => {
     if ("count" in projection) {
       return { from: countFromMock };
     }
-    // mainLocation unterscheidet searchImages (hat es, seit kurzem AUCH mit
-    // administrativeUnitId/regionId für den Standort-Punkt auf Kachel/Preview)
-    // von searchImageLocations (nur id/lat/lng/administrativeUnitId/regionId,
-    // kein mainLocation) — muss daher VOR der administrativeUnitId-Prüfung
-    // laufen, sonst würde searchImages fälschlich auf die pagination-lose
+    // hash unterscheidet searchImages/getImageById (beide haben es) von
+    // searchImageLocations (das seit kurzem AUCH mainLocation selektiert,
+    // für das Kartenhover-Vorschaubild — aber weiterhin kein hash) — muss
+    // daher VOR der mainLocation-Prüfung laufen, sonst würden
+    // searchImages/getImageById fälschlich auf die pagination-lose
     // locationsFromMock-Kette geroutet.
-    if ("mainLocation" in projection) {
+    if ("hash" in projection) {
       return { from: selectFromMock };
     }
-    if ("administrativeUnitId" in projection) {
+    if ("mainLocation" in projection) {
       return { from: locationsFromMock };
+    }
+    if ("userId" in projection) {
+      return { from: favoritesFromMock };
     }
     return { from: ownershipFromMock };
   });
@@ -64,6 +86,9 @@ const { authMock, dbMock, s3Mock } = vi.hoisted(() => {
   const deleteWhereMock = vi.fn().mockResolvedValue(undefined);
   const deleteMock = vi.fn(() => ({ where: deleteWhereMock }));
 
+  const insertValuesMock = vi.fn().mockResolvedValue(undefined);
+  const insertMock = vi.fn(() => ({ values: insertValuesMock }));
+
   return {
     authMock: vi.fn(),
     dbMock: {
@@ -73,15 +98,20 @@ const { authMock, dbMock, s3Mock } = vi.hoisted(() => {
       selectOrderByMock,
       selectLimitMock,
       selectOffsetMock,
+      getByIdRowsMock,
       countWhereMock,
       locationsWhereMock,
       ownershipRowsMock,
       ownershipWhereMock,
+      favoritesRowsMock,
+      favoritesWhereMock,
       update: updateMock,
       setMock,
       updateWhereMock,
       delete: deleteMock,
       deleteWhereMock,
+      insert: insertMock,
+      insertValuesMock,
     },
     s3Mock: {
       listObjectKeysUnderPrefix: vi.fn().mockResolvedValue([]),
@@ -107,6 +137,8 @@ const {
   deleteImages,
   addUserTag,
   removeUserTag,
+  toggleFavorite,
+  getImageById,
 } = await import("./actions");
 
 describe("searchImages", () => {
@@ -125,6 +157,36 @@ describe("searchImages", () => {
 
   it("baut für tagsQuery eine Bedingung, ohne zu werfen (user_tags ist jsonb, nicht text[] — array_to_string darauf würde in Postgres einen Laufzeitfehler werfen, den dieser gemockte Test nicht fängt; echte SQL-Ausführung separat gegen die DB verifiziert)", async () => {
     await searchImages({ locationQuery: "", tagsQuery: "Herbst", offset: 0 });
+
+    expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("baut für hashQuery (User-facing 'ID') eine Bedingung, ohne zu werfen", async () => {
+    await searchImages({ locationQuery: "", tagsQuery: "", hashQuery: "C3E2", offset: 0 });
+
+    expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("baut für favoritesOnly 'yes' eine EXISTS-Bedingung (eingeloggt), ohne zu werfen", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
+
+    await searchImages({ locationQuery: "", tagsQuery: "", favoritesOnly: "yes", offset: 0 });
+
+    expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("baut für favoritesOnly 'no' eine NOT-EXISTS-Bedingung (eingeloggt), ohne zu werfen", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
+
+    await searchImages({ locationQuery: "", tagsQuery: "", favoritesOnly: "no", offset: 0 });
+
+    expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("favoritesOnly 'yes' baut auch anonym (ohne Session) eine Bedingung, ohne zu werfen", async () => {
+    authMock.mockResolvedValue(null);
+
+    await searchImages({ locationQuery: "", tagsQuery: "", favoritesOnly: "yes", offset: 0 });
 
     expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
   });
@@ -625,5 +687,108 @@ describe("removeUserTag", () => {
 
     expect(result.success).toBe(true);
     expect(dbMock.setMock).toHaveBeenCalledWith(expect.objectContaining({ userTags: [] }));
+  });
+});
+
+describe("toggleFavorite", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.favoritesRowsMock.mockResolvedValue([]);
+  });
+
+  it("lehnt ab, wenn niemand eingeloggt ist", async () => {
+    authMock.mockResolvedValue(null);
+
+    const result = await toggleFavorite("img-1");
+
+    expect(result.success).toBe(false);
+    expect(dbMock.insert).not.toHaveBeenCalled();
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("fügt einen Favoriten ein, wenn noch keiner existiert — userId kommt aus der Session, nie vom Aufrufer", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
+    dbMock.favoritesRowsMock.mockResolvedValue([]);
+
+    const result = await toggleFavorite("img-1");
+
+    expect(result).toEqual({ success: true, isFavorite: true });
+    expect(dbMock.insertValuesMock).toHaveBeenCalledWith({ userId: "user-1", imageId: "img-1" });
+    expect(dbMock.delete).not.toHaveBeenCalled();
+  });
+
+  it("entfernt einen bestehenden Favoriten, statt einen zweiten einzufügen", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1", role: "user" } });
+    dbMock.favoritesRowsMock.mockResolvedValue([{ userId: "user-1" }]);
+
+    const result = await toggleFavorite("img-1");
+
+    expect(result).toEqual({ success: true, isFavorite: false });
+    expect(dbMock.delete).toHaveBeenCalledTimes(1);
+    expect(dbMock.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("getImageById", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.getByIdRowsMock.mockResolvedValue([]);
+    authMock.mockResolvedValue(null);
+  });
+
+  it("gibt null zurück, wenn kein Bild mit dieser id existiert", async () => {
+    const result = await getImageById("img-missing");
+
+    expect(result).toBeNull();
+  });
+
+  it("baut die Bedingung ohne zu werfen, auch für eingeloggte Sessions", async () => {
+    authMock.mockResolvedValue({ user: { id: "admin-1", role: "admin" } });
+
+    await getImageById("img-1");
+
+    expect(dbMock.selectWhereMock).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("mappt eine gefundene Zeile inkl. thumbUrl/previewUrl und ersetzt null-Arrays durch leere Arrays", async () => {
+    dbMock.getByIdRowsMock.mockResolvedValue([
+      {
+        id: "img-1",
+        hash: "1E044D",
+        mainLocation: "Teststraße",
+        secondaryLocations: null,
+        tags: null,
+        userTags: [{ tag: "UT1", addedBy: "user-1" }],
+        webVisible: true,
+        webRanking: 1,
+        printVisible: null,
+        printRanking: null,
+        uploadedBy: "user-1",
+        administrativeUnitId: "unit-1",
+        regionId: null,
+        isFavorite: false,
+      },
+    ]);
+
+    const result = await getImageById("img-1");
+
+    expect(result).toEqual({
+      id: "img-1",
+      hash: "1E044D",
+      mainLocation: "Teststraße",
+      secondaryLocations: [],
+      tags: [],
+      userTags: [{ tag: "UT1", addedBy: "user-1" }],
+      webVisible: true,
+      webRanking: 1,
+      printVisible: null,
+      printRanking: null,
+      uploadedBy: "user-1",
+      administrativeUnitId: "unit-1",
+      regionId: null,
+      isFavorite: false,
+      thumbUrl: "https://example-bucket.test/img-1/thumb.jpg",
+      previewUrl: "https://example-bucket.test/img-1/preview.jpg",
+    });
   });
 });

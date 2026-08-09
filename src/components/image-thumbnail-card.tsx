@@ -7,6 +7,8 @@ import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImageMapDot } from "@/components/image-map-dot";
+import { CopyableId, FavoriteButton } from "@/components/image-preview-popup";
+import { BUTTON_GLASS_CLASS, TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { canManageUserTag, type Role } from "@/lib/authorization";
 import { useFittingCount } from "@/lib/use-fitting-count";
 import { useIsTruncated } from "@/lib/use-is-truncated";
@@ -94,11 +96,15 @@ function OverflowBadgesPopover<T>({
         // reales Zeigerereignis). data-[popup-open] hängt dagegen an Base
         // UIs eigener Interaktionslogik, die ein echtes Pointer-Event
         // braucht — bleibt in genau diesem Fall korrekt aus.
-        className={cn(
-          badgeVariants({ variant: "secondary" }),
-          "shrink-0 border-primary/30 bg-primary/20 text-[10px] text-primary data-[popup-open]:bg-primary/30",
-          className
-        )}
+        //
+        // Keine eigene Farbe mehr fest codiert (früher Coral inkl.
+        // data-[popup-open]:bg-primary/30) — jede Aufrufstelle bringt jetzt
+        // ihren eigenen Zeilen-Stil per `className` mit (BUTTON_GLASS_CLASS/
+        // TAG_GLASS_CLASS, siehe die drei Aufrufer unten), analog zum
+        // Preview-Vorbild (image-preview-popup.tsx). Ein fest codierter
+        // data-[popup-open]-Coral-Ton hätte sonst beim Öffnen durch den
+        // Glass-Hintergrund der Aufrufer "durchgeschienen".
+        className={cn(badgeVariants({ variant: "secondary" }), "shrink-0", className)}
       >
         +{hiddenCount}
       </PopoverTrigger>
@@ -271,6 +277,7 @@ export function ImageThumbnailCard({
   currentUser,
   onAddUserTag,
   onRemoveUserTag,
+  onToggleFavorite,
   dotColor,
   onLocateOnMap,
 }: {
@@ -296,6 +303,7 @@ export function ImageThumbnailCard({
   currentUser: { id?: string; role: Role } | null;
   onAddUserTag?: (tag: string) => void;
   onRemoveUserTag?: (tag: string, addedBy: string | null) => void;
+  onToggleFavorite?: () => void;
   /** Standort-Punkt unten rechts (siehe ImageMapDot) — dieselbe Farbe wie der
    * zugehörige Karten-Marker. */
   dotColor: string;
@@ -433,8 +441,15 @@ export function ImageThumbnailCard({
 
       {onToggleSelect && (
         <label
+          // size-4 (statt size-6/size-5 zuvor) — spürbar kleiner als die
+          // icon-xs-Buttons (size-6) oben rechts. top-2/left-2 statt top-1/
+          // left-1: die Button-Zeile ist 24px hoch und beginnt bei top-1
+          // (4px), ihr Zentrum liegt also bei 4+12=16px. Eine 16px-Box
+          // (size-4) landet mit demselben Zentrum, wenn sie bei 8px beginnt
+          // (top-2) — rein größengleich (top-1 + size-6) UND rein optisch
+          // (top-1 + size-5) saß sie zuvor jeweils zu weit oben.
           className={cn(
-            "absolute top-1 left-1 z-10 flex size-5 cursor-pointer items-center justify-center rounded border border-white/20 bg-black/40 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100",
+            "absolute top-2 left-2 z-10 flex size-4 cursor-pointer items-center justify-center rounded border border-white/20 bg-black/40 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100",
             isSelected && "border-primary bg-primary/80 opacity-100"
           )}
           onClick={(event) => event.stopPropagation()}
@@ -448,12 +463,17 @@ export function ImageThumbnailCard({
             onClick={(event) => event.stopPropagation()}
             onChange={() => onToggleSelect?.(false)}
           />
-          {isSelected && <Check className="size-3.5 text-primary-foreground" />}
+          {isSelected && <Check className="size-3 text-primary-foreground" />}
         </label>
       )}
 
       {row.mainLocation && (
-        <Badge className="pointer-events-none absolute bottom-1 left-1 max-w-[70%] gap-1 border-primary/60 bg-primary/40 text-[11px] text-primary-foreground opacity-100 backdrop-blur-sm transition-opacity group-hover:opacity-0">
+        <Badge
+          className={cn(
+            "pointer-events-none absolute bottom-1 left-1 max-w-[70%] gap-1 text-[11px] text-primary opacity-100 transition-opacity group-hover:opacity-0",
+            BUTTON_GLASS_CLASS
+          )}
+        >
           <MapPin data-icon="inline-start" className="size-3 shrink-0" />
           <span className="truncate">{row.mainLocation}</span>
         </Badge>
@@ -469,12 +489,22 @@ export function ImageThumbnailCard({
       <div className="absolute top-1 right-1 flex items-center gap-1">
         {(canEdit || canDelete) && (
           <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            {/* size="xs" (h-6) statt des Preview-Standards "sm" (h-7) — auf
+                Wunsch des Users an die Höhe der icon-xs-Nachbar-Buttons
+                (Bearbeiten/Löschen) angeglichen, siehe CopyableId-Kommentar
+                in image-preview-popup.tsx. font-semibold statt dem
+                Button-Standard font-medium: "etwas markanter" auf Wunsch
+                des Users. */}
+            <CopyableId id={row.hash} size="xs" className="font-semibold" testId={`image-copy-id-${row.id}`} />
             {canEdit && (
               <Button
                 type="button"
                 size="icon-xs"
                 variant="secondary"
-                className="bg-primary/20 text-primary hover:bg-primary/30"
+                // BUTTON_GLASS_CLASS statt fester Coral-Fläche — auf Wunsch
+                // des Users an den Preview-Stil angeglichen
+                // (image-preview-popup.tsx).
+                className={cn(BUTTON_GLASS_CLASS, "text-primary")}
                 aria-label="Bearbeiten"
                 data-testid={`image-edit-${row.id}`}
                 onClick={(event) => {
@@ -490,13 +520,13 @@ export function ImageThumbnailCard({
                 type="button"
                 size="icon-xs"
                 variant="destructive"
-                // Kräftiger als die Standard-destructive-Variante (nur 10%
-                // Deckkraft) — auf Wunsch des Users, damit dieser Papierkorb-
-                // Icon-Button (der einzige reine Trash-Icon-Button im Projekt,
-                // sonst nutzt "destructive" überall Text-Buttons wie "Löschen"
-                // in AlertDialogs) deutlicher als Gefahren-/Warnaktion wirkt.
-                // Kein Rand (auf Wunsch des Users).
-                className="border-transparent bg-destructive/30 hover:bg-destructive/50"
+                // BUTTON_GLASS_CLASS statt fester Coral-/Rot-Fläche — auf
+                // Wunsch des Users an den Preview-Stil angeglichen
+                // (image-preview-popup.tsx). Ersetzt die frühere, kräftigere
+                // randlose Coral-Variante (bg-destructive/30, kein Rand);
+                // der dezente helle Rand kommt jetzt aus BUTTON_GLASS_CLASS
+                // dazu, identisch zum Löschen-Button im Preview.
+                className={cn(BUTTON_GLASS_CLASS, "text-destructive")}
                 aria-label="Löschen"
                 data-testid={`image-delete-${row.id}`}
                 onClick={(event) => {
@@ -509,6 +539,17 @@ export function ImageThumbnailCard({
             )}
           </div>
         )}
+        {/* Immer sichtbar (nicht im Hover-Fade-Wrapper von Bearbeiten/
+            Löschen/ID oben) — Favorisieren ist eine für jeden Betrachter
+            jederzeit greifbare Aktion, keine Owner-/Admin-Aktion. */}
+        <FavoriteButton
+          isFavorite={row.isFavorite}
+          isLoggedIn={Boolean(currentUser?.id)}
+          onToggle={() => onToggleFavorite?.()}
+          size="icon-xs"
+          testId={`image-favorite-${row.id}`}
+          loginLinkTestId={`image-favorite-login-link-${row.id}`}
+        />
         <ImageMapDot className="size-6" color={dotColor} onClick={() => onLocateOnMap(row)} bordered={false} />
       </div>
 
@@ -542,13 +583,13 @@ export function ImageThumbnailCard({
             <Badge
               variant="secondary"
               // Exakt derselbe Stil wie das dauerhaft sichtbare (Nicht-
-              // Hover-)Adress-Badge unten links auf der Kachel — auf Wunsch
-              // des Users für Haupt- UND Nebenadressen: text-primary-
-              // foreground löst sich automatisch je nach Theme in Weiß
-              // (Light) bzw. Schwarz (Dark) auf, passend zum satten
-              // primary/40-Hintergrund. font-medium/px-2 nicht extra
-              // gesetzt — kommt schon aus Badges eigener Basis (badge.tsx).
-              className="min-w-0 shrink border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+              // Hover-)Adress-Badge unten links auf der Kachel, für Haupt-
+              // UND Nebenadressen. BUTTON_GLASS_CLASS (neutrales Frosted-
+              // Glass) statt fester Coral-Fläche — auf Wunsch des Users an
+              // den Preview-Stil angeglichen (image-preview-popup.tsx):
+              // passt sich jedem Bildausschnitt an, statt als fester
+              // Coral-Chip unabhängig vom Fotoinhalt zu wirken.
+              className={cn("min-w-0 shrink text-[11px] text-primary", BUTTON_GLASS_CLASS)}
             >
               {/* truncate auf einem eigenen inneren <span> statt direkt auf
                   dem Badge: Badge ist selbst ein Flex-Container (inline-flex,
@@ -580,7 +621,7 @@ export function ImageThumbnailCard({
                 <FittingBadges
                   items={visibleSecondaryLocations}
                   getKey={(location) => location}
-                  badgeClassName="max-w-full border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
+                  badgeClassName={cn("max-w-full text-[11px] text-primary", BUTTON_GLASS_CLASS)}
                 >
                   {(location) => (
                     <TruncatedBadgeText
@@ -591,7 +632,7 @@ export function ImageThumbnailCard({
                   )}
                 </FittingBadges>
                 <OverflowBadgesPopover
-                  className="ml-auto"
+                  className={cn("ml-auto text-[11px] text-primary", BUTTON_GLASS_CLASS)}
                   hiddenCount={hiddenLocationCount}
                   items={row.secondaryLocations}
                   testId={`image-locations-overflow-${row.id}`}
@@ -600,7 +641,7 @@ export function ImageThumbnailCard({
                     <Badge
                       key={location}
                       variant="secondary"
-                      className="max-w-full shrink-0 border-primary/60 bg-primary/40 text-[11px] text-primary-foreground"
+                      className={cn("max-w-full shrink-0 text-[11px] text-primary", BUTTON_GLASS_CLASS)}
                       title={location}
                     >
                       <span className="min-w-0 truncate">{location}</span>
@@ -618,12 +659,12 @@ export function ImageThumbnailCard({
               rechtfertigen würde). */}
           {visibleTags.length > 0 && (
             <div className="flex items-start gap-1">
-              <TagIcon className="mt-0.5 size-3 shrink-0 text-primary" />
+              <TagIcon className={cn("mt-0.5 size-3 shrink-0", TAG_ACCENT_TEXT_CLASS)} />
               <div ref={tagsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
                 <FittingBadges
                   items={visibleTags}
                   getKey={(tag) => tag}
-                  badgeClassName="max-w-full border-primary/30 bg-primary/20 text-[10px] text-primary"
+                  badgeClassName={cn("max-w-full text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                 >
                   {(tag) => (
                     <TruncatedBadgeText
@@ -634,13 +675,13 @@ export function ImageThumbnailCard({
                   )}
                 </FittingBadges>
                 <OverflowBadgesPopover
-                  className="ml-auto"
+                  className={cn("ml-auto text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                   hiddenCount={hiddenTagCount}
                   items={row.tags}
                   testId={`image-tags-overflow-${row.id}`}
                   onOpenChange={setIsOverflowPopoverOpen}
                   renderItem={(tag) => (
-                    <Badge key={tag} variant="secondary" className="max-w-full shrink-0 border-primary/30 bg-primary/20 text-[10px] text-primary">
+                    <Badge key={tag} variant="secondary" className={cn("max-w-full shrink-0 text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}>
                       <span className="min-w-0 truncate">{tag}</span>
                     </Badge>
                   )}
@@ -658,7 +699,7 @@ export function ImageThumbnailCard({
               "+"-Button/Hinweis unabhängig von vorhandenen Tags immer eine
               Aktion anbietet. */}
           <div className="flex items-start gap-1" data-testid={`image-user-tags-${row.id}`}>
-            <UserTagsIcon className="mt-0.5 size-3 shrink-0 text-primary" />
+            <UserTagsIcon className={cn("mt-0.5 size-3 shrink-0", TAG_ACCENT_TEXT_CLASS)} />
             <div ref={userTagsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
               {/* Während der Eingabe (isAddingTag) verschwindet die
                   Badge-Liste zugunsten des Eingabefelds — siehe dessen
@@ -669,7 +710,7 @@ export function ImageThumbnailCard({
                 <FittingBadges
                   items={visibleUserTags}
                   getKey={(entry) => `${entry.tag}-${entry.addedBy ?? "legacy"}`}
-                  badgeClassName="max-w-full gap-1 border-primary/30 bg-primary/20 text-[10px] text-primary"
+                  badgeClassName={cn("max-w-full gap-1 text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                 >
                   {(entry) => (
                     <>
@@ -735,20 +776,26 @@ export function ImageThumbnailCard({
                     // dünnem grauem Rand — wirkte neben den satten
                     // Coral-Badges wie ein Fremdkörper. Jetzt derselbe
                     // Pill-Stil wie die Tag-Badges daneben (rounded-4xl,
-                    // h-5, Coral-Fläche/-Text), dazu ein kurzes Einblenden
-                    // beim Öffnen (zoom-in/fade-in). appearance-none/
-                    // bg-clip-padding gegen native Browser-Eigendarstellung
-                    // von <input>. KEIN focus:ring (box-shadow) — bei diesem
-                    // großen border-radius (rounded-4xl/Pille) folgt der
+                    // h-5), dazu ein kurzes Einblenden beim Öffnen
+                    // (zoom-in/fade-in). appearance-none/bg-clip-padding
+                    // gegen native Browser-Eigendarstellung von <input>.
+                    // KEIN focus:ring (box-shadow) — bei diesem großen
+                    // border-radius (rounded-4xl/Pille) folgt der
                     // Ring-Schatten die Ecken sichtbar eckiger als der
                     // Rand selbst und wirkte dadurch wie ein über den Rand
                     // hinauslaufender Hintergrund (vom User bestätigt).
-                    // Fokus zeigt sich stattdessen allein über
-                    // Rand-/Flächenfarbe (border-primary, bg-primary/30).
-                    // flex-1/min-w-0 statt fester w-20: das Feld soll beim
-                    // Öffnen die ganze Zeile ausfüllen (bis auf den Platz
-                    // für "+N" rechts, siehe Kommentar oben).
-                    className="h-5 min-w-0 flex-1 animate-in appearance-none rounded-4xl border border-primary/40 bg-primary/20 bg-clip-padding px-2 text-[10px] text-primary placeholder:text-primary/50 zoom-in-95 fade-in-0 duration-150 outline-none transition-colors focus:border-primary focus:bg-primary/30"
+                    // Fokus zeigt sich stattdessen allein über die
+                    // TAG_GLASS_CLASS-Hover-Fläche. flex-1/min-w-0 statt
+                    // fester w-20: das Feld soll beim Öffnen die ganze
+                    // Zeile ausfüllen (bis auf den Platz für "+N" rechts,
+                    // siehe Kommentar oben). Glas-Stil (TAG_GLASS_CLASS/
+                    // TAG_ACCENT_TEXT_CLASS) statt fester Coral-Fläche — auf
+                    // Wunsch des Users an den Preview-Stil angeglichen.
+                    className={cn(
+                      "h-5 min-w-0 flex-1 animate-in appearance-none rounded-4xl border bg-clip-padding px-2 text-[10px] placeholder:text-white/40 outline-none transition-colors duration-150 zoom-in-95 fade-in-0",
+                      TAG_ACCENT_TEXT_CLASS,
+                      TAG_GLASS_CLASS
+                    )}
                   />
                 ) : (
                   <button
@@ -821,7 +868,7 @@ export function ImageThumbnailCard({
                 </Popover>
               )}
               <OverflowBadgesPopover
-                className="ml-auto"
+                className={cn("ml-auto text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                 hiddenCount={hiddenUserTagCount}
                 items={userTagsWithPermission}
                 testId={`image-user-tags-overflow-${row.id}`}
@@ -830,7 +877,7 @@ export function ImageThumbnailCard({
                   <Badge
                     key={`${entry.tag}-${entry.addedBy ?? "legacy"}`}
                     variant="secondary"
-                    className="max-w-full shrink-0 gap-1 border-primary/30 bg-primary/20 text-[10px] text-primary"
+                    className={cn("max-w-full shrink-0 gap-1 text-[10px]", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                   >
                     <span className="min-w-0 truncate">{entry.tag}</span>
                     {entry.canManage && (

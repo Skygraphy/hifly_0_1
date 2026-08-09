@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpDown, Check, Images, LayoutGrid, Map, MapPin, Tag, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Hash, Heart, Images, LayoutGrid, Map, MapPin, Tag, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -34,10 +34,24 @@ import {
   searchImageLocations,
   addUserTag,
   removeUserTag,
+  toggleFavorite,
+  getImageById,
   type ImageSearchRow,
   type ImageSortBy,
   type ImageLocation,
 } from "./actions";
+
+// "all" bleibt bewusst kein serverseitig übertragener Wert (siehe
+// SearchImagesInput.favoritesOnly: "yes" | "no" | undefined) — "all" heißt
+// clientseitig "keinen favoritesOnly-Parameter mitschicken", analog dazu,
+// wie ein leerer hashQuery/locationQuery-String keinen Filter auslöst.
+type FavoritesFilter = "all" | "yes" | "no";
+
+const FAVORITES_FILTER_OPTIONS: { value: FavoritesFilter; label: string }[] = [
+  { value: "all", label: "Alle" },
+  { value: "yes", label: "Nur Favoriten" },
+  { value: "no", label: "Keine Favoriten" },
+];
 
 const DEBOUNCE_MS = 250;
 const SKELETON_COUNT = 8;
@@ -84,6 +98,8 @@ export function ImagesPageClient({
   const [standort, setStandort] = useState<StandortRef | null>(initialStandort);
   const [locationQuery, setLocationQuery] = useState("");
   const [tagsQuery, setTagsQuery] = useState("");
+  const [hashQuery, setHashQuery] = useState("");
+  const [favoritesOnly, setFavoritesOnly] = useState<FavoritesFilter>("all");
   const [sortBy, setSortBy] = useState<ImageSortBy>("address-asc");
   const [viewMode, setViewMode] = useState<"grid" | "map">("grid");
   const [mapLocations, setMapLocations] = useState<ImageLocation[]>([]);
@@ -112,6 +128,22 @@ export function ImagesPageClient({
   // durch Löschen aus rows fällt, und nach Edit/Tag-Änderungen sofort den
   // aktuellen Stand zeigt, ohne manuelle Synchronisation.
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // Prev/Next im Preview ergeben nur Sinn, wenn man sich vorher tatsächlich
+  // durch die Grid-Reihenfolge bewegt hat — bei einem über die Karte
+  // geöffneten Bild ist die rows-Position bestenfalls zufällig (ein
+  // Kartenbild, das noch nicht in rows steht, hat dort sogar gar keine
+  // Position, siehe externalPreviewRow), "Weiter" würde dann zu einem
+  // thematisch beliebigen Bild springen. Wird bei jedem Preview-Öffnen neu
+  // gesetzt (Grid-Klick → false, Kartenklick → true).
+  const [previewOpenedFromMap, setPreviewOpenedFromMap] = useState(false);
+  // Per Kartenklick per getImageById nachgeladenes Bild, das (noch) nicht in
+  // rows steht (siehe handleSelectMapImage) — bewusst NICHT in rows
+  // eingefügt, das hätte in der eigentlich sortierten/paginierten Liste eine
+  // Lücke bzw. einen Sprung erzeugt (auf Wunsch des Users). Preview,
+  // Bearbeiten- und Tag/Favorit-Aktionen fallen für diese eine Zeile auf
+  // diesen State zurück (siehe findRowAnywhere/updateRow), damit sie trotzdem
+  // funktionieren, obwohl das Bild in der Kachel-Ansicht nicht sichtbar ist.
+  const [externalPreviewRow, setExternalPreviewRow] = useState<ImageSearchRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   // Zuletzt einzeln (de-)markiertes Bild — Anker für Shift-Klick-Bereiche.
@@ -132,6 +164,8 @@ export function ImagesPageClient({
       nextStandort: StandortRef | null,
       nextLocationQuery: string,
       nextTagsQuery: string,
+      nextHashQuery: string,
+      nextFavoritesOnly: FavoritesFilter,
       offset: number,
       append: boolean,
       nextSortBy: ImageSortBy
@@ -145,6 +179,8 @@ export function ImagesPageClient({
         regionId: nextStandort?.type === "region" ? nextStandort.id : undefined,
         locationQuery: nextLocationQuery,
         tagsQuery: nextTagsQuery,
+        hashQuery: nextHashQuery,
+        favoritesOnly: nextFavoritesOnly === "all" ? undefined : nextFavoritesOnly,
         offset,
         sortBy: nextSortBy,
       });
@@ -171,7 +207,13 @@ export function ImagesPageClient({
   // Nur aufgerufen, während viewMode === "map" ist (siehe Aufrufer unten) —
   // dasselbe Lazy-Prinzip wie das verzögerte Laden des Maps-Scripts selbst.
   const runMapSearch = useCallback(
-    async (nextStandort: StandortRef | null, nextLocationQuery: string, nextTagsQuery: string) => {
+    async (
+      nextStandort: StandortRef | null,
+      nextLocationQuery: string,
+      nextTagsQuery: string,
+      nextHashQuery: string,
+      nextFavoritesOnly: FavoritesFilter
+    ) => {
       const seq = ++mapRequestSeq.current;
       const result = await searchImageLocations({
         administrativeUnitIds:
@@ -179,6 +221,8 @@ export function ImagesPageClient({
         regionId: nextStandort?.type === "region" ? nextStandort.id : undefined,
         locationQuery: nextLocationQuery,
         tagsQuery: nextTagsQuery,
+        hashQuery: nextHashQuery,
+        favoritesOnly: nextFavoritesOnly === "all" ? undefined : nextFavoritesOnly,
         offset: 0,
       });
       if (seq !== mapRequestSeq.current) return;
@@ -189,15 +233,23 @@ export function ImagesPageClient({
 
   function handleStandortChange(next: StandortRef | null) {
     setStandort(next);
-    void runSearch(next, locationQuery, tagsQuery, 0, false, sortBy);
-    if (viewMode === "map") void runMapSearch(next, locationQuery, tagsQuery);
+    void runSearch(next, locationQuery, tagsQuery, hashQuery, favoritesOnly, 0, false, sortBy);
+    if (viewMode === "map") void runMapSearch(next, locationQuery, tagsQuery, hashQuery, favoritesOnly);
   }
 
   // Diskrete Auswahl statt Texteingabe: löst wie handleStandortChange sofort
   // eine neue Suche aus, nicht debounced.
   function handleSortChange(next: ImageSortBy) {
     setSortBy(next);
-    void runSearch(standort, locationQuery, tagsQuery, 0, false, next);
+    void runSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly, 0, false, next);
+  }
+
+  // Diskrete Auswahl statt Texteingabe: löst wie handleStandortChange/
+  // handleSortChange sofort eine neue Suche aus, nicht debounced.
+  function handleFavoritesOnlyChange(next: FavoritesFilter) {
+    setFavoritesOnly(next);
+    void runSearch(standort, locationQuery, tagsQuery, hashQuery, next, 0, false, sortBy);
+    if (viewMode === "map") void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, next);
   }
 
   // Text-Filter: bei jedem Tastendruck, debounced. Der erste Durchlauf nach
@@ -209,19 +261,20 @@ export function ImagesPageClient({
       return;
     }
     const timeout = setTimeout(() => {
-      void runSearch(standort, locationQuery, tagsQuery, 0, false, sortBy);
-      if (viewMode === "map") void runMapSearch(standort, locationQuery, tagsQuery);
+      void runSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly, 0, false, sortBy);
+      if (viewMode === "map") void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
     }, DEBOUNCE_MS);
     return () => clearTimeout(timeout);
-    // standort/sortBy/runSearch bewusst nicht in den deps: Standort- und
-    // Sortier-Änderungen laufen sofort über handleStandortChange/
-    // handleSortChange, nicht debounced.
+    // standort/sortBy/favoritesOnly/runSearch bewusst nicht in den deps:
+    // Standort-/Sortier-/Favoriten-Änderungen laufen sofort über
+    // handleStandortChange/handleSortChange/handleFavoritesOnlyChange,
+    // nicht debounced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationQuery, tagsQuery]);
+  }, [locationQuery, tagsQuery, hashQuery]);
 
   const handleLoadMore = useCallback(() => {
-    void runSearch(standort, locationQuery, tagsQuery, rows.length, true, sortBy);
-  }, [runSearch, standort, locationQuery, tagsQuery, rows.length, sortBy]);
+    void runSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly, rows.length, true, sortBy);
+  }, [runSearch, standort, locationQuery, tagsQuery, hashQuery, favoritesOnly, sortBy, rows.length]);
 
   // Lädt automatisch nach, sobald der Sentinel unterhalb des Grids in Sicht
   // kommt — rootMargin sorgt dafür, dass schon vor dem exakten Erreichen des
@@ -238,7 +291,47 @@ export function ImagesPageClient({
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [hasMore, isLoading, handleLoadMore]);
+    // viewMode bewusst mit in den Deps: der Sentinel wird nur gerendert,
+    // während viewMode "grid" ist (siehe unten), verschwindet also beim
+    // Wechsel zur Karte komplett aus dem DOM und wird beim Rücksprung als
+    // NEUER Knoten neu gemountet. Ohne viewMode hier würde dieser Effekt
+    // nach einem Kartenausflug nie erneut laufen (hasMore/isLoading/
+    // handleLoadMore ändern sich dabei ja nicht zwangsläufig) — der neue
+    // Sentinel bliebe dauerhaft unbeobachtet, automatisches Nachladen wäre
+    // nach dem Rücksprung stumm kaputt.
+  }, [hasMore, isLoading, handleLoadMore, viewMode]);
+
+  // Rücksprung von der Karte zur Kachel-Ansicht: wurde highlightedImageId
+  // durch einen Kartenklick gesetzt (siehe handleSelectMapImage), springt
+  // das Grid beim Wechsel auf viewMode "grid" automatisch zu dieser Kachel
+  // und hebt sie kurz hervor — aber NUR, wenn sie tatsächlich schon geladen
+  // ist. Ein Kartenklick fügt ein noch nicht geladenes Bild bewusst NICHT in
+  // rows ein (siehe handleSelectMapImage), der Fall unten ("Kachel nicht
+  // gefunden") ist dafür also der normale, nicht nur ein Rand-Fall. Rein
+  // imperativ über das ohnehin vorhandene data-testid jeder Kachel
+  // (image-thumbnail-${id}) statt einer neuen Ref-Prop-Kette durch
+  // ImageGrid/ImageThumbnailCard — outline-4 outline-primary statt ring-*,
+  // dieselbe Konvention wie der Preview-Bildrahmen (outline wird nicht vom
+  // overflow-hidden der Kachel beschnitten, siehe image-preview-popup.tsx).
+  useEffect(() => {
+    if (viewMode !== "grid" || !highlightedImageId) return;
+    const el = document.querySelector<HTMLElement>(`[data-testid="image-thumbnail-${highlightedImageId}"]`);
+    if (!el) {
+      // Kachel (noch) nicht geladen oder aktuell herausgefiltert — nichts
+      // zum Anspringen, Markierung wieder verwerfen statt sie hängen zu
+      // lassen.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHighlightedImageId(null);
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("outline-4", "outline-primary");
+    const timeout = setTimeout(() => {
+      el.classList.remove("outline-4", "outline-primary");
+      setHighlightedImageId(null);
+    }, 2000);
+    return () => clearTimeout(timeout);
+  }, [viewMode, highlightedImageId]);
 
   // Standort-Punkt (Kachel/Preview) angeklickt: schließt ein offenes Preview,
   // markiert das Bild auf der Karte und lädt die Kartendaten neu für den
@@ -248,17 +341,63 @@ export function ImagesPageClient({
     setPreviewId(null);
     setHighlightedImageId(row.id);
     setViewMode("map");
-    void runMapSearch(standort, locationQuery, tagsQuery);
+    void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
+  }
+
+  // Umgekehrte Richtung: ein Kartenpunkt wurde direkt angeklickt. Öffnet
+  // das Vollbild-Preview (setPreviewId) und markiert denselben Punkt auf
+  // der Karte (setHighlightedImageId) — derselbe State wie bei
+  // handleLocateOnMap, dadurch bekommt der angeklickte Punkt automatisch
+  // denselben größeren/dunkleren/umrandeten Stil. searchImageLocations
+  // liefert für Kartenpunkte bewusst nur schlanke Felder (id/lat/lng/…,
+  // siehe ImageLocation) — ist das Bild nicht ohnehin schon in den lokal
+  // geladenen (paginierten) rows, wird es einmalig per getImageById
+  // nachgeladen. Bewusst NICHT in rows eingefügt (auf Wunsch des Users) —
+  // das hätte in der sortierten/paginierten Liste eine Lücke bzw. beim
+  // Nachladen einen Sortier-Sprung erzeugt. Landet stattdessen nur in
+  // externalPreviewRow, rein für die Preview-Anzeige; die Kachel-Ansicht
+  // bleibt unverändert, wie sie vor dem Kartenklick war.
+  async function handleSelectMapImage(imageId: string) {
+    setHighlightedImageId(imageId);
+    setPreviewOpenedFromMap(true);
+    const existing = rows.find((row) => row.id === imageId);
+    if (existing) {
+      setExternalPreviewRow(null);
+      setPreviewId(existing.id);
+      return;
+    }
+    const fetched = await getImageById(imageId);
+    if (!fetched) return;
+    setExternalPreviewRow(fetched);
+    setPreviewId(fetched.id);
+  }
+
+  // Liefert die aktuelle Zeile für eine id, egal ob sie in rows steht oder
+  // nur als externalPreviewRow existiert (siehe handleSelectMapImage) — von
+  // den Tag-/Favorit-/Bearbeiten-Handlern genutzt, damit diese Aktionen auch
+  // für ein per Kartenklick geöffnetes, noch nicht geladenes Bild
+  // funktionieren.
+  function findRowAnywhere(id: string): ImageSearchRow | undefined {
+    return rows.find((row) => row.id === id) ?? (externalPreviewRow?.id === id ? externalPreviewRow : undefined);
+  }
+
+  // Wendet updater auf die Zeile mit id an, egal ob sie gerade in rows oder
+  // nur in externalPreviewRow steht (siehe findRowAnywhere).
+  function updateRowAnywhere(id: string, updater: (row: ImageSearchRow) => ImageSearchRow) {
+    setRows((prev) => prev.map((row) => (row.id === id ? updater(row) : row)));
+    setExternalPreviewRow((prev) => (prev?.id === id ? updater(prev) : prev));
   }
 
   function handleDeleted(id: string) {
     setRows((prev) => prev.filter((row) => row.id !== id));
+    setExternalPreviewRow((prev) => (prev?.id === id ? null : prev));
     setTotal((prev) => prev - 1);
     setDeleteTarget(null);
   }
 
   function handleSaved(updated: ImageSearchRow) {
     setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    setExternalPreviewRow((prev) => (prev?.id === updated.id ? updated : prev));
     setEditId(null);
   }
 
@@ -311,49 +450,91 @@ export function ImagesPageClient({
 
   // Optimistisch: Tag erscheint sofort, wird bei Serverfehler wieder entfernt
   // (Berechtigung/Owner wird server-seitig ohnehin erneut geprüft, siehe
-  // addUserTag in actions.ts — hier nur UI-Feedback).
+  // addUserTag in actions.ts — hier nur UI-Feedback). updateRowAnywhere statt
+  // direktem setRows, damit das auch für ein per Kartenklick geöffnetes,
+  // noch nicht geladenes Bild funktioniert (siehe externalPreviewRow).
   async function handleAddUserTag(imageId: string, tag: string) {
     if (!user?.id) return;
     const optimisticEntry: UserTagEntry = { tag, addedBy: user.id };
-    setRows((prev) =>
-      prev.map((row) => (row.id === imageId ? { ...row, userTags: [...row.userTags, optimisticEntry] } : row))
-    );
+    updateRowAnywhere(imageId, (row) => ({ ...row, userTags: [...row.userTags, optimisticEntry] }));
 
     const result = await addUserTag(imageId, tag);
     if (!result.success || !result.userTags) {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === imageId ? { ...row, userTags: row.userTags.filter((entry) => entry !== optimisticEntry) } : row
-        )
-      );
+      updateRowAnywhere(imageId, (row) => ({
+        ...row,
+        userTags: row.userTags.filter((entry) => entry !== optimisticEntry),
+      }));
       alert(result.error ?? "Tag konnte nicht hinzugefügt werden.");
       return;
     }
     const confirmedTags = result.userTags;
-    setRows((prev) => prev.map((row) => (row.id === imageId ? { ...row, userTags: confirmedTags } : row)));
+    updateRowAnywhere(imageId, (row) => ({ ...row, userTags: confirmedTags }));
   }
 
   async function handleRemoveUserTag(imageId: string, tag: string, addedBy: string | null) {
-    let removedEntry: UserTagEntry | undefined;
-    setRows((prev) =>
-      prev.map((row) => {
-        if (row.id !== imageId) return row;
-        removedEntry = row.userTags.find((entry) => entry.tag === tag && entry.addedBy === addedBy);
-        return { ...row, userTags: row.userTags.filter((entry) => !(entry.tag === tag && entry.addedBy === addedBy)) };
-      })
+    const removedEntry = findRowAnywhere(imageId)?.userTags.find(
+      (entry) => entry.tag === tag && entry.addedBy === addedBy
     );
+    updateRowAnywhere(imageId, (row) => ({
+      ...row,
+      userTags: row.userTags.filter((entry) => !(entry.tag === tag && entry.addedBy === addedBy)),
+    }));
 
     const result = await removeUserTag(imageId, tag, addedBy);
     if (!result.success) {
-      setRows((prev) =>
-        prev.map((row) => (row.id === imageId && removedEntry ? { ...row, userTags: [...row.userTags, removedEntry] } : row))
-      );
+      if (removedEntry) updateRowAnywhere(imageId, (row) => ({ ...row, userTags: [...row.userTags, removedEntry] }));
       alert(result.error ?? "Tag konnte nicht entfernt werden.");
       return;
     }
     if (result.userTags) {
       const confirmedTags = result.userTags;
-      setRows((prev) => prev.map((row) => (row.id === imageId ? { ...row, userTags: confirmedTags } : row)));
+      updateRowAnywhere(imageId, (row) => ({ ...row, userTags: confirmedTags }));
+    }
+  }
+
+  // Optimistisch: das Herz wechselt sofort den Zustand. Erfüllt die Zeile
+  // danach einen AKTIVEN favoritesOnly-Filter nicht mehr, verschwindet sie
+  // sofort aus der Ergebnisliste (nicht erst nach einem Reload) — vom User
+  // explizit für die Abwahl gefordert, hier aus Konsistenzgründen auch
+  // symmetrisch für den umgekehrten Fall (Filter "Keine Favoriten" +
+  // gerade favorisiert) umgesetzt. Die Filter-Entfernung gilt nur für rows
+  // (Teil der gefilterten/gezählten Ergebnismenge) — ein externalPreviewRow
+  // ist per direktem getImageById geladen, unabhängig vom aktiven Filter,
+  // und wird deshalb nur aktualisiert, nie herausgefiltert. stillMatchesFilter
+  // wird VOR dem setRows-Aufruf aus dem aktuellen (geschlossenen)
+  // rows/favoritesOnly berechnet, nicht im Updater selbst gelesen — React
+  // führt den Updater asynchron zum Rest dieser Funktion aus.
+  async function handleToggleFavorite(imageId: string) {
+    if (!user?.id) return;
+    const rowInRows = rows.find((row) => row.id === imageId);
+    const rowInExternal = externalPreviewRow?.id === imageId ? externalPreviewRow : undefined;
+    const currentRow = rowInRows ?? rowInExternal;
+    if (!currentRow) return;
+    const nextIsFavorite = !currentRow.isFavorite;
+    const stillMatchesFilter =
+      favoritesOnly === "all" || (favoritesOnly === "yes" ? nextIsFavorite : !nextIsFavorite);
+
+    const previousRows = rows;
+    const previousExternalPreviewRow = externalPreviewRow;
+    const previousTotal = total;
+    if (rowInRows) {
+      setRows((prev) =>
+        stillMatchesFilter
+          ? prev.map((row) => (row.id === imageId ? { ...row, isFavorite: nextIsFavorite } : row))
+          : prev.filter((row) => row.id !== imageId)
+      );
+      if (!stillMatchesFilter) setTotal((prev) => prev - 1);
+    }
+    if (rowInExternal) {
+      setExternalPreviewRow((prev) => (prev ? { ...prev, isFavorite: nextIsFavorite } : prev));
+    }
+
+    const result = await toggleFavorite(imageId);
+    if (!result.success) {
+      setRows(previousRows);
+      setExternalPreviewRow(previousExternalPreviewRow);
+      setTotal(previousTotal);
+      alert(result.error ?? "Favorit konnte nicht geändert werden.");
     }
   }
 
@@ -385,10 +566,11 @@ export function ImagesPageClient({
     return colorById;
   }, [rows, standort, units, regions]);
 
-  const editRow = editId ? (rows.find((row) => row.id === editId) ?? null) : null;
+  const editRow = editId ? (findRowAnywhere(editId) ?? null) : null;
 
   const previewIndex = rows.findIndex((row) => row.id === previewId);
-  const previewRow = previewIndex >= 0 ? rows[previewIndex] : null;
+  const previewRow =
+    previewIndex >= 0 ? rows[previewIndex] : externalPreviewRow?.id === previewId ? externalPreviewRow : null;
   const previewCanEdit = previewRow
     ? canEditImage({ actingUserId: user?.id, actingRole: user?.role, imageUploadedBy: previewRow.uploadedBy })
     : false;
@@ -430,7 +612,7 @@ export function ImagesPageClient({
         onStandortChange={handleStandortChange}
       />
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative max-w-64 flex-1">
           <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -451,6 +633,54 @@ export function ImagesPageClient({
             className="pl-8"
           />
         </div>
+        {/* Sucht in images.hash — dem User als "ID" bezeichnet (eindeutige
+            Kennung zum Identifizieren/Bestellen eines Bilds, siehe
+            CopyableIdBadge im Preview-Popup). */}
+        <div className="relative max-w-64 flex-1">
+          <Hash className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            data-testid="images-filter-hash"
+            placeholder="Nach ID suchen…"
+            value={hashQuery}
+            onChange={(event) => setHashQuery(event.target.value)}
+            className="pl-8"
+          />
+        </div>
+
+        {/* 3-Zustands-Filter (Alle/Nur Favoriten/Keine Favoriten) statt
+            einer einfachen Checkbox — echtes "weiteres Filterkriterium" wie
+            gefordert, lässt sich (wie die Text-Suchfelder bei leerer
+            Eingabe) auch ganz auf "Alle" zurückstellen. DropdownMenu statt
+            Input, da es kein Freitext-, sondern ein diskreter
+            Auswahl-Filter ist — gleiches Muster wie der Sortier-Dropdown
+            weiter unten. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            data-testid="images-filter-favorites-trigger"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+          >
+            <Heart className="size-3.5" />
+            {FAVORITES_FILTER_OPTIONS.find((option) => option.value === favoritesOnly)?.label}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Favoriten</DropdownMenuLabel>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              {FAVORITES_FILTER_OPTIONS.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  data-testid={`images-filter-favorites-${option.value}`}
+                  onClick={() => handleFavoritesOnlyChange(option.value)}
+                >
+                  {option.label}
+                  {favoritesOnly === option.value && <Check className="ml-auto size-4" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="ml-auto flex items-center gap-3">
           {viewMode === "grid" && (
@@ -505,7 +735,7 @@ export function ImagesPageClient({
               onClick={() => {
                 setHighlightedImageId(null);
                 setViewMode("map");
-                void runMapSearch(standort, locationQuery, tagsQuery);
+                void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
               }}
             >
               <Map className="size-3.5" />
@@ -518,8 +748,12 @@ export function ImagesPageClient({
               size="sm"
               data-testid="images-view-toggle"
               aria-label="Zur Grid-Ansicht wechseln"
+              // Bewusst OHNE setHighlightedImageId(null): ein auf der Karte
+              // angeklicktes Bild soll beim Rücksprung zur Kachel-Ansicht
+              // dort angesprungen/hervorgehoben werden (siehe Effekt weiter
+              // unten) — der wertet highlightedImageId aus und räumt danach
+              // selbst auf.
               onClick={() => {
-                setHighlightedImageId(null);
                 setViewMode("grid");
               }}
             >
@@ -536,11 +770,15 @@ export function ImagesPageClient({
           user={user}
           selectedIds={selectedIds}
           onToggleSelect={handleToggleSelect}
-          onPreview={(row) => setPreviewId(row.id)}
+          onPreview={(row) => {
+            setPreviewOpenedFromMap(false);
+            setPreviewId(row.id);
+          }}
           onEdit={(row) => setEditId(row.id)}
           onDelete={setDeleteTarget}
           onAddUserTag={handleAddUserTag}
           onRemoveUserTag={handleRemoveUserTag}
+          onToggleFavorite={handleToggleFavorite}
           dotColorById={dotColorById}
           onLocateOnMap={handleLocateOnMap}
         />
@@ -551,6 +789,7 @@ export function ImagesPageClient({
           regions={regions}
           standort={standort}
           highlightedId={highlightedImageId}
+          onSelectImage={handleSelectMapImage}
         />
       )}
 
@@ -602,8 +841,9 @@ export function ImagesPageClient({
         onDelete={setDeleteTarget}
         onAddUserTag={(tag) => previewRow && handleAddUserTag(previewRow.id, tag)}
         onRemoveUserTag={(tag, addedBy) => previewRow && handleRemoveUserTag(previewRow.id, tag, addedBy)}
-        onPrev={previewHasPrev ? () => setPreviewId(rows[previewIndex - 1].id) : undefined}
-        onNext={previewHasNext ? () => setPreviewId(rows[previewIndex + 1].id) : undefined}
+        onToggleFavorite={() => previewRow && handleToggleFavorite(previewRow.id)}
+        onPrev={!previewOpenedFromMap && previewHasPrev ? () => setPreviewId(rows[previewIndex - 1].id) : undefined}
+        onNext={!previewOpenedFromMap && previewHasNext ? () => setPreviewId(rows[previewIndex + 1].id) : undefined}
         dotColor={previewRow ? (dotColorById.get(previewRow.id) ?? FALLBACK_MARKER_COLOR) : FALLBACK_MARKER_COLOR}
         onLocateOnMap={handleLocateOnMap}
       />

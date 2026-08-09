@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { images, type UserTagEntry } from "@/db/schema";
+import { images, imageFavorites, type UserTagEntry } from "@/db/schema";
 import { canSeeHiddenImages, canEditImage, canDeleteImage, canManageUserTag } from "@/lib/authorization";
 import { thumbUrlFor, previewUrlFor } from "@/lib/image-folder";
 import { listObjectKeysUnderPrefix, deleteObjects } from "@/lib/s3";
@@ -21,6 +21,16 @@ export interface SearchImagesInput {
   regionId?: string;
   locationQuery: string;
   tagsQuery: string;
+  /** Sucht in images.hash (User-facing "ID") — optional statt required wie
+   * die beiden Felder oben, damit bestehende Aufrufer (u.a. viele
+   * Testfälle) ohne Änderung gültig bleiben; fehlt es, wirkt einfach kein
+   * ID-Filter (siehe buildImageConditions). */
+  hashQuery?: string;
+  /** Filtert auf den Favoriten-Status der aktuellen Session — fehlt/undefined
+   * = kein Filter ("Alle"), "yes" = nur eigene Favoriten, "no" = nur
+   * NICHT favorisierte Bilder. Anonyme Sessions haben nie Favoriten (siehe
+   * buildImageConditions: "yes" liefert dann leer, "no" liefert alles). */
+  favoritesOnly?: "yes" | "no";
   offset: number;
   /** Fehlt (z.B. beim initialen Server-Render in page.tsx) → "ranking". */
   sortBy?: ImageSortBy;
@@ -28,8 +38,11 @@ export interface SearchImagesInput {
 
 export interface ImageSearchRow {
   id: string;
-  /** 6-stelliger Hash aus dem Ordnernamen — Anzeige im Vollbild-Popup, siehe
-   * image-preview-popup.tsx. */
+  /** 6-stelliger Hash aus dem Ordnernamen — User-facing als "ID"
+   * bezeichnet (eindeutige Kennung zum Identifizieren/Bestellen eines
+   * Bilds, DB-seitig per images_hash_idx erzwungen). Durchsuchbar über
+   * hashQuery, angezeigt im Vollbild-Popup (CopyableIdBadge in
+   * image-preview-popup.tsx). */
   hash: string;
   mainLocation: string | null;
   secondaryLocations: string[];
@@ -44,6 +57,9 @@ export interface ImageSearchRow {
    * updateImageMetadata/deleteImage/deleteImages ist die eigentliche
    * Absicherung, das hier steuert nur, ob die Icons/Checkbox angezeigt werden. */
   uploadedBy: string;
+  /** Ob die AKTUELLE Session dieses Bild favorisiert hat (siehe
+   * image_favorites in schema.ts) — für anonyme Sessions immer false. */
+  isFavorite: boolean;
   thumbUrl: string;
   /** Vollbild-Ansicht (preview.jpg statt thumb.jpg) fürs Popup. */
   previewUrl: string;
@@ -74,7 +90,7 @@ function splitWords(query: string): string[] {
  * kaputt gemacht (array_to_string auf der inzwischen jsonb-gewordenen
  * user_tags-Spalte), siehe Kommentar bei der tagsQuery-Bedingung unten.
  */
-function buildImageConditions(input: SearchImagesInput, seesHiddenImages: boolean): SQL[] {
+function buildImageConditions(input: SearchImagesInput, seesHiddenImages: boolean, currentUserId: string | undefined): SQL[] {
   const conditions: SQL[] = [];
 
   if (!seesHiddenImages) {
@@ -104,6 +120,30 @@ function buildImageConditions(input: SearchImagesInput, seesHiddenImages: boolea
     );
   }
 
+  for (const word of splitWords(input.hashQuery ?? "")) {
+    const pattern = `%${word}%`;
+    conditions.push(sql`${images.hash} ILIKE ${pattern}`);
+  }
+
+  // Favoriten hängen an der Session, nicht an einer Spalte auf images
+  // selbst (siehe image_favorites in schema.ts) — daher eine korrelierte
+  // EXISTS-Subquery statt eines einfachen Spaltenvergleichs. Anonyme
+  // Sessions (currentUserId undefined) können nichts favorisiert haben:
+  // "yes" liefert dann bewusst leer, "no" liefert bewusst alles.
+  if (input.favoritesOnly === "yes") {
+    conditions.push(
+      currentUserId
+        ? sql`EXISTS (SELECT 1 FROM ${imageFavorites} WHERE ${imageFavorites.imageId} = ${images.id} AND ${imageFavorites.userId} = ${currentUserId})`
+        : sql`false`
+    );
+  } else if (input.favoritesOnly === "no") {
+    conditions.push(
+      currentUserId
+        ? sql`NOT EXISTS (SELECT 1 FROM ${imageFavorites} WHERE ${imageFavorites.imageId} = ${images.id} AND ${imageFavorites.userId} = ${currentUserId})`
+        : sql`true`
+    );
+  }
+
   return conditions;
 }
 
@@ -114,19 +154,21 @@ function buildImageConditions(input: SearchImagesInput, seesHiddenImages: boolea
  * sie unsichtbare Bilder von hier aus finden/bearbeiten können — alle
  * anderen (anonym, user) nur web_visible = true.
  *
- * Textfilter-Logik (mit dem User abgestimmt): location- und tags-Query
- * müssen beide treffen, wenn angegeben (UND). Jede Query wird an
- * Leerzeichen in Wörter gesplittet — alle Wörter müssen (UND) irgendwo in
- * den zugehörigen, zusammengeführten Feldern vorkommen. location durchsucht
- * main_location + secondary_locations (ODER zwischen den beiden Feldern),
- * tags durchsucht tags + user_tags (ODER).
+ * Textfilter-Logik (mit dem User abgestimmt): location-, tags- und
+ * hash-Query müssen alle drei treffen, wenn angegeben (UND). Jede Query
+ * wird an Leerzeichen in Wörter gesplittet — alle Wörter müssen (UND)
+ * irgendwo in den zugehörigen, zusammengeführten Feldern vorkommen.
+ * location durchsucht main_location + secondary_locations (ODER zwischen
+ * den beiden Feldern), tags durchsucht tags + user_tags (ODER), hash
+ * (User-facing "ID") durchsucht nur die eine hash-Spalte.
  */
 export async function searchImages(input: SearchImagesInput): Promise<SearchImagesResult> {
   const session = await auth();
   const role = session?.user?.role;
   const seesHiddenImages = canSeeHiddenImages(role);
+  const currentUserId = session?.user?.id;
 
-  const conditions = buildImageConditions(input, seesHiddenImages);
+  const conditions = buildImageConditions(input, seesHiddenImages, currentUserId);
 
   // Sequenznummer und Aufnahmedatum laufen als versteckte, nicht auswählbare
   // Tiebreaker mit: bei Ort-Sortierung sonst identisch benannte Adressen in
@@ -175,6 +217,15 @@ export async function searchImages(input: SearchImagesInput): Promise<SearchImag
         uploadedBy: images.uploadedBy,
         administrativeUnitId: images.administrativeUnitId,
         regionId: images.regionId,
+        // Korrelierte EXISTS-Subquery statt Join: liefert direkt einen
+        // booleschen Wert pro Zeile, ohne die Kardinalität der
+        // Haupt-Query zu verändern (ein LEFT JOIN auf image_favorites
+        // würde bei mehreren Favoriten-Zeilen — kann hier zwar nicht
+        // vorkommen, PK ist ja (user_id, image_id) — unnötig kompliziert
+        // wirken). Anonyme Sessions haben nie Favoriten.
+        isFavorite: currentUserId
+          ? sql<boolean>`EXISTS (SELECT 1 FROM ${imageFavorites} WHERE ${imageFavorites.imageId} = ${images.id} AND ${imageFavorites.userId} = ${currentUserId})`
+          : sql<boolean>`false`,
       })
       .from(images)
       .where(whereClause)
@@ -200,6 +251,59 @@ export async function searchImages(input: SearchImagesInput): Promise<SearchImag
   };
 }
 
+/**
+ * Lädt EINE Zeile per id, komplett — dieselbe Spaltenliste/Sichtbarkeits-
+ * Logik wie searchImages. Gebraucht für den Klick auf einen Kartenpunkt
+ * (images-map-view.tsx): `searchImageLocations` liefert für Kartenpunkte
+ * bewusst nur id/lat/lng/administrativeUnitId/regionId (schlank, weil
+ * unpaginiert — siehe dortiger Kommentar), das volle Preview-Popup
+ * braucht aber die vollständige ImageSearchRow. Wird nur aufgerufen, wenn
+ * das angeklickte Bild nicht ohnehin schon in den lokal geladenen
+ * (paginierten) Grid-Zeilen steckt.
+ */
+export async function getImageById(id: string): Promise<ImageSearchRow | null> {
+  const session = await auth();
+  const seesHiddenImages = canSeeHiddenImages(session?.user?.role);
+  const currentUserId = session?.user?.id;
+
+  const conditions = [eq(images.id, id)];
+  if (!seesHiddenImages) conditions.push(eq(images.webVisible, true));
+
+  const [row] = await db
+    .select({
+      id: images.id,
+      hash: images.hash,
+      mainLocation: images.mainLocation,
+      secondaryLocations: images.secondaryLocations,
+      tags: images.tags,
+      userTags: images.userTags,
+      webVisible: images.webVisible,
+      webRanking: images.webRanking,
+      printVisible: images.printVisible,
+      printRanking: images.printRanking,
+      uploadedBy: images.uploadedBy,
+      administrativeUnitId: images.administrativeUnitId,
+      regionId: images.regionId,
+      isFavorite: currentUserId
+        ? sql<boolean>`EXISTS (SELECT 1 FROM ${imageFavorites} WHERE ${imageFavorites.imageId} = ${images.id} AND ${imageFavorites.userId} = ${currentUserId})`
+        : sql<boolean>`false`,
+    })
+    .from(images)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    ...row,
+    secondaryLocations: row.secondaryLocations ?? [],
+    tags: row.tags ?? [],
+    userTags: row.userTags ?? [],
+    thumbUrl: thumbUrlFor(row.id),
+    previewUrl: previewUrlFor(row.id),
+  };
+}
+
 export interface ImageLocation {
   id: string;
   lat: number;
@@ -211,6 +315,14 @@ export interface ImageLocation {
    * src/lib/administrative-units.ts), nicht nur von der eigenen Zuordnung. */
   administrativeUnitId: string | null;
   regionId: string | null;
+  /** Für das Hover-Vorschaubild auf der Karte (images-map-view.tsx) — eine
+   * einzelne, günstige Text-Spalte. Bewusst KEIN isFavorite/tags/userTags
+   * o.ä. hier: diese Query ist absichtlich unpaginiert (siehe Kommentar bei
+   * searchImageLocations) und lädt potenziell hunderte/tausende Zeilen auf
+   * einmal — eine korrelierte EXISTS-Subquery (wie isFavorite in
+   * searchImages) oder größere jsonb-Spalten pro Zeile wären dafür
+   * unverhältnismäßig teuer. */
+  mainLocation: string | null;
 }
 
 /**
@@ -227,7 +339,7 @@ export async function searchImageLocations(input: SearchImagesInput): Promise<Im
   const role = session?.user?.role;
   const seesHiddenImages = canSeeHiddenImages(role);
 
-  const conditions = buildImageConditions(input, seesHiddenImages);
+  const conditions = buildImageConditions(input, seesHiddenImages, session?.user?.id);
   conditions.push(isNotNull(images.lat), isNotNull(images.lng));
 
   const rows = await db
@@ -237,6 +349,7 @@ export async function searchImageLocations(input: SearchImagesInput): Promise<Im
       lng: images.lng,
       administrativeUnitId: images.administrativeUnitId,
       regionId: images.regionId,
+      mainLocation: images.mainLocation,
     })
     .from(images)
     .where(and(...conditions));
@@ -249,6 +362,7 @@ export async function searchImageLocations(input: SearchImagesInput): Promise<Im
     lng: row.lng!,
     administrativeUnitId: row.administrativeUnitId,
     regionId: row.regionId,
+    mainLocation: row.mainLocation,
   }));
 }
 
@@ -277,8 +391,9 @@ export async function getRandomImages(input: {
   const seesHiddenImages = canSeeHiddenImages(session?.user?.role);
 
   const conditions = buildImageConditions(
-    { ...input, locationQuery: "", tagsQuery: "", offset: 0 },
-    seesHiddenImages
+    { ...input, locationQuery: "", tagsQuery: "", hashQuery: "", offset: 0 },
+    seesHiddenImages,
+    session?.user?.id
   );
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -528,4 +643,41 @@ export async function removeUserTag(
 
   revalidatePath("/images");
   return { success: true, userTags: nextTags };
+}
+
+export interface ToggleFavoriteResult {
+  success: boolean;
+  error?: string;
+  isFavorite?: boolean;
+}
+
+/**
+ * Schaltet den Favoriten-Status FÜR DIE EIGENE Session um — anders als
+ * user_tags gibt es hier kein Owner-Konzept (canManageUserTag ist nicht
+ * relevant): jede Session verwaltet ausschließlich ihre eigene Zeile in
+ * image_favorites, referenziert immer über die eigene session.user.id, nie
+ * vom Client übernommen.
+ */
+export async function toggleFavorite(imageId: string): Promise<ToggleFavoriteResult> {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, error: "Nicht angemeldet." };
+  }
+  const userId = session.user.id;
+
+  const [existing] = await db
+    .select({ userId: imageFavorites.userId })
+    .from(imageFavorites)
+    .where(and(eq(imageFavorites.userId, userId), eq(imageFavorites.imageId, imageId)))
+    .limit(1);
+
+  if (existing) {
+    await db.delete(imageFavorites).where(and(eq(imageFavorites.userId, userId), eq(imageFavorites.imageId, imageId)));
+    revalidatePath("/images");
+    return { success: true, isFavorite: false };
+  }
+
+  await db.insert(imageFavorites).values({ userId, imageId });
+  revalidatePath("/images");
+  return { success: true, isFavorite: true };
 }

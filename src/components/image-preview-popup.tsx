@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  Heart,
   MapPin,
   Pencil,
   Plus,
@@ -16,19 +28,19 @@ import {
   X,
   XIcon,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogPortal } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImageMapDot } from "@/components/image-map-dot";
 import { canManageUserTag, type Role } from "@/lib/authorization";
+import { BUTTON_GLASS_CLASS, TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { useFittingCount } from "@/lib/use-fitting-count";
+import { useIsTruncated } from "@/lib/use-is-truncated";
 import { cn } from "@/lib/utils";
 import type { ImageSearchRow } from "@/app/images/actions";
 
 const EMPTY_PLACEHOLDER = "–";
-const MAX_VISIBLE_SECONDARY_LOCATIONS = 4;
-const MAX_VISIBLE_TAGS = 8;
 
 /** Kein echter Kopierschutz (im Browser prinzipiell nicht durchsetzbar —
  * die Bytes liegen ohnehin im Netzwerk-Tab), sondern nur eine Hürde für
@@ -40,6 +52,318 @@ const NO_CASUAL_DOWNLOAD_PROPS = {
   onContextMenu: (event: MouseEvent) => event.preventDefault(),
   style: { WebkitTouchCallout: "none" } as CSSProperties,
 } as const;
+
+/**
+ * Bei tatsächlicher Ellipsen-Kürzung (useIsTruncated, per scrollWidth/
+ * clientWidth gemessen) wird der Text zum Hover/Klick-Popover-Trigger mit
+ * dem VOLLEN Text als Inhalt — derselbe gestylte Tooltip-Look wie auf der
+ * Kachel (image-thumbnail-card.tsx), statt eines nativen title-Attributs
+ * (dort funktioniert dieselbe Sache, wirkt aber wie ein verzögertes
+ * Browser-Tooltip statt einer eigenen gestylten Box). Lokale Kopie statt
+ * Import: das Kachel-Original ist dort nicht exportiert und der Bereich
+ * ist auf Wunsch des Users eingefroren, siehe [[feedback_thumbnail_badge_truncation_frozen]] —
+ * die Messlogik selbst (`useIsTruncated`) bleibt geteilt.
+ *
+ * Baum (Popover > Trigger > span) wird bewusst immer gleich gerendert, nur
+ * `disabled`/`openOnHover`/`open` hängen von isTruncated ab — siehe
+ * Kachel-Original für die ausführliche Begründung (Messwert-Oszillation/
+ * "Maximum update depth exceeded" bei bedingtem Strukturwechsel).
+ */
+function TruncatedTooltipText({
+  text,
+  testId,
+  onOpenChange,
+}: {
+  text: string;
+  testId?: string;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [ref, isTruncated] = useIsTruncated<HTMLSpanElement>();
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <Popover
+      open={isTruncated && isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        onOpenChange?.(open && isTruncated);
+      }}
+    >
+      <PopoverTrigger
+        type="button"
+        disabled={!isTruncated}
+        openOnHover={isTruncated}
+        aria-label={isTruncated ? text : undefined}
+        data-testid={testId}
+        onClick={(event) => event.stopPropagation()}
+        className="min-w-0 max-w-full border-0 bg-transparent p-0 text-left disabled:cursor-default"
+      >
+        <span ref={ref} className="block min-w-0 truncate">
+          {text}
+        </span>
+      </PopoverTrigger>
+      <PopoverContent onClick={(event) => event.stopPropagation()} className="max-w-64 p-2 text-xs">
+        {text}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Der "+N"-Chip einer Zeile (Nebenadressen/Tags/User-Tags) — bei Hover ODER
+ * Klick öffnet er ein Popover mit ALLEN Einträgen der Kategorie (nicht nur
+ * den durch useFittingCount/MAX_VISIBLE_* abgeschnittenen). Lokale Kopie
+ * von OverflowBadgesPopover aus image-thumbnail-card.tsx — dort nicht
+ * exportiert und die Datei eingefroren, siehe Kommentar bei
+ * TruncatedTooltipText oben. `className` bestimmt der Aufrufer (je Zeile
+ * die dortige Glas-/Akzentklasse statt der Kachel-eigenen Coral-Literale).
+ */
+function OverflowBadgesPopover<T>({
+  hiddenCount,
+  items,
+  testId,
+  renderItem,
+  onOpenChange,
+  className,
+}: {
+  hiddenCount: number;
+  items: T[];
+  testId: string;
+  renderItem: (item: T) => ReactNode;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (hiddenCount <= 0) return null;
+
+  return (
+    <Popover
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        onOpenChange?.(open);
+      }}
+    >
+      <PopoverTrigger
+        type="button"
+        openOnHover
+        aria-label={`Alle ${items.length} anzeigen`}
+        data-testid={testId}
+        onClick={(event) => event.stopPropagation()}
+        className={cn(badgeVariants({ variant: "secondary" }), "shrink-0 cursor-default text-xs", className)}
+      >
+        +{hiddenCount}
+      </PopoverTrigger>
+      <PopoverContent onClick={(event) => event.stopPropagation()} className="flex max-w-64 flex-wrap gap-1 p-2">
+        {items.map(renderItem)}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Die Badges einer Zeile (Nebenadressen/Tags/User-Tags), die tatsächlich
+ * (per useFittingCount) in die Zeile passen — das letzte sichtbare Badge
+ * darf sich per Ellipsis in den Restplatz hinein kürzen (`min-w-8 shrink`),
+ * statt beim nächsten useFittingCount-Schritt direkt ganz zu verschwinden.
+ * Lokale Kopie von FittingBadges aus image-thumbnail-card.tsx — siehe
+ * Kommentar bei TruncatedTooltipText oben zur Begründung der Kopie statt
+ * eines Imports.
+ */
+function FittingBadges<T>({
+  items,
+  getKey,
+  badgeClassName,
+  children,
+}: {
+  items: T[];
+  getKey: (item: T) => string;
+  badgeClassName: string;
+  children: (item: T) => ReactNode;
+}) {
+  return (
+    <>
+      {items.map((item, index) => {
+        const isTrailing = index === items.length - 1;
+        return (
+          <Badge
+            // Suffix im Key, der sich mit isTrailing ändert: ein
+            // wiederverwendetes DOM-Element behielt beim Wechsel von
+            // shrink-0 zu shrink seine vorherige (volle) Breite, wodurch
+            // useFittingCount ein Badge zu viel wegkürzte — siehe
+            // Kachel-Original für die per Messung bestätigte Begründung.
+            key={`${getKey(item)}-${isTrailing ? "trailing" : "full"}`}
+            variant="secondary"
+            className={cn(badgeClassName, isTrailing ? "min-w-8 shrink" : "shrink-0")}
+          >
+            {children(item)}
+          </Badge>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Die "ID" (images.hash) — auf Wunsch des Users NICHT dauerhaft sichtbar,
+ * sondern nur beim Hovern links neben der Bearbeiten/Löschen/Standort-
+ * Punkt/Schließen-Gruppe erscheint (siehe Platzierung im
+ * Hauptkomponenten-JSX, `opacity-0 group-hover:opacity-100` wie beim
+ * unteren Info-Panel). Als EIN Button im selben Stil wie der
+ * Bearbeiten-Button daneben (size="sm" statt "icon-sm", da hier Text statt
+ * nur eines Icons drin steht — gleiche Höhe/Farben trotzdem). Soll Usern
+ * helfen, ein Bild eindeutig zu identifizieren, z.B. für eine spätere
+ * Bestellung — ein Klick irgendwo auf den Button kopiert den Wert direkt
+ * (kein separater kleiner Kopier-Button mehr nötig). Kein Toast-System im
+ * Projekt vorhanden, daher zeigt der Button die Bestätigung rein lokal
+ * (Copy-Icon wechselt kurz auf Check) statt einer neuen Abhängigkeit.
+ *
+ * Exportiert (statt lokaler Kopie wie bei TruncatedTooltipText/
+ * OverflowBadgesPopover/FittingBadges): auch von der Kachel
+ * (image-thumbnail-card.tsx) genutzt — hier gibt es (anders als beim
+ * Stil-Vorbild Kachel→Preview) keine gewachsene, abweichende
+ * Eigenimplementation, die eine Kopie rechtfertigen würde, daher lieber
+ * eine gemeinsame Quelle als eine zweite, potenziell auseinanderdriftende
+ * Kopie. `className` optional, damit Aufrufer die Textdarstellung punktuell
+ * anpassen können (z.B. font-semibold auf der Kachel für "etwas
+ * markanteren" Text), ohne die Basis-Klassen zu duplizieren. `size`
+ * optional (Default "sm" — die ursprüngliche Preview-Höhe, siehe unten):
+ * auf der Kachel zunächst ebenfalls "sm" genutzt ("genauso wie im
+ * Preview"), auf expliziten Folgewunsch des Users dann auf "xs" (h-6)
+ * umgestellt, um auf gleicher Höhe wie die dortigen icon-xs-Nachbarn
+ * (Bearbeiten/Löschen) zu sitzen.
+ */
+export function CopyableId({
+  id,
+  className,
+  testId = "image-preview-copy-id",
+  size = "sm",
+}: {
+  id: string;
+  className?: string;
+  testId?: string;
+  size?: "sm" | "xs";
+}) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return (
+    <Button
+      type="button"
+      size={size}
+      variant="secondary"
+      // size="sm" (Preview) ist h-7 — dieselbe Höhe wie die icon-sm-Buttons
+      // daneben (Bearbeiten/Löschen/Schließen), auf Wunsch des Users
+      // vereinheitlicht (vorher h-9, an das Adress-Badge oben links
+      // angeglichen — das saß dadurch aber nicht mehr auf gleicher Höhe wie
+      // seine direkten Nachbarn in derselben Button-Gruppe). size="xs"
+      // (Kachel) entsprechend h-6, dieselbe Höhe wie dortige icon-xs-
+      // Nachbarn. BUTTON_GLASS_CLASS statt fester Marken-Farbe — siehe
+      // Begründung dort/bei den Nachbar-Buttons oben rechts.
+      className={cn("gap-1.5", BUTTON_GLASS_CLASS, "text-primary", className)}
+      aria-label="ID kopieren"
+      data-testid={testId}
+      onClick={async (event) => {
+        event.stopPropagation();
+        await navigator.clipboard.writeText(id);
+        setCopied(true);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => setCopied(false), 1500);
+      }}
+    >
+      ID {id}
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </Button>
+  );
+}
+
+/**
+ * Favoriten-Umschalter — auf Wunsch des Users sowohl auf der Kachel
+ * (image-thumbnail-card.tsx) als auch im Preview nutzbar, exportiert wie
+ * CopyableId (siehe dortiger Kommentar zur Begründung: gemeinsame Quelle
+ * statt einer zweiten, potenziell auseinanderdriftenden Kopie). Anders als
+ * user_tags gibt es hier kein Owner-Konzept — jede Session verwaltet
+ * ausschließlich ihre eigene Favoriten-Zeile (siehe toggleFavorite in
+ * actions.ts), daher kein canManage*-Check nötig.
+ *
+ * Gefüllt vs. Umriss transportiert den Zustand (kein neuer Farbton nötig —
+ * dieselbe BUTTON_GLASS_CLASS+text-primary-Fläche wie die Nachbar-Buttons).
+ * Anonyme Besucher: derselbe Hinweis-Popover-Zweig wie beim User-Tag-
+ * "+"-Button (siehe dort in dieser Datei bzw. image-thumbnail-card.tsx),
+ * nur mit anderem Text — Favorisieren erfordert zwingend eine Session, da
+ * die Zeile in image_favorites an eine user_id gebunden ist.
+ */
+export function FavoriteButton({
+  isFavorite,
+  onToggle,
+  isLoggedIn,
+  size = "icon-sm",
+  className,
+  testId,
+  loginLinkTestId,
+}: {
+  isFavorite: boolean;
+  onToggle: () => void;
+  isLoggedIn: boolean;
+  size?: "icon-sm" | "icon-xs";
+  className?: string;
+  testId?: string;
+  loginLinkTestId?: string;
+}) {
+  const [isLoginHintOpen, setIsLoginHintOpen] = useState(false);
+  const iconClassName = size === "icon-sm" ? "size-4" : "size-3.5";
+
+  if (!isLoggedIn) {
+    return (
+      <Popover open={isLoginHintOpen} onOpenChange={setIsLoginHintOpen}>
+        <PopoverTrigger
+          type="button"
+          aria-label="Anmelden, um Favoriten zu speichern"
+          data-testid={testId}
+          onClick={(event) => event.stopPropagation()}
+          className={cn(buttonVariants({ variant: "secondary", size }), BUTTON_GLASS_CLASS, "text-primary", className)}
+        >
+          <Heart className={iconClassName} />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-56 p-3 text-xs" onClick={(event) => event.stopPropagation()}>
+          <p className="text-muted-foreground">Melde dich an, um Favoriten zu speichern.</p>
+          <Link
+            href="/login"
+            data-testid={loginLinkTestId}
+            className="mt-2 inline-block font-medium text-primary hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Jetzt anmelden
+          </Link>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      size={size}
+      variant="secondary"
+      className={cn(BUTTON_GLASS_CLASS, "text-primary", className)}
+      aria-label={isFavorite ? "Von Favoriten entfernen" : "Zu Favoriten hinzufügen"}
+      data-testid={testId}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Heart className={iconClassName} fill={isFavorite ? "currentColor" : "none"} />
+    </Button>
+  );
+}
 
 /**
  * Echter Crossfade beim Prev/Next-Blättern: das alte Bild bleibt (statt
@@ -68,6 +392,45 @@ const NO_CASUAL_DOWNLOAD_PROPS = {
  * duration-300 von 0 auf 1 — per Opacity-Polling mit exaktem 0→1-Ramp
  * bestätigt.
  */
+
+/**
+ * Liefert die max-width/max-height, ab der ein <img> NICHT mehr über seine
+ * tatsächliche Auflösung hinaus hochskaliert wird — kombiniert per CSS
+ * min() mit der üblichen 85vw/85vh-Deckelung, sodass beide Grenzen
+ * gleichzeitig gelten (auf kleinen Viewports weiterhin normal verkleinern,
+ * auf großen NIE über die Originalgröße hinaus vergrößern).
+ *
+ * NICHT einfach naturalWidth/naturalHeight direkt als CSS-px-Grenze zu
+ * nehmen (das wäre object-fit: scale-down, siehe frühere Version dieses
+ * Kommentars) — das ignoriert devicePixelRatio: auf einem HiDPI/Retina-
+ * Display (DPR 1.25–2, sehr verbreitet) braucht eine CSS-Box VOR der
+ * DPR-Umrechnung bereits mehr GERÄTE-Pixel, als das Bild überhaupt an
+ * Quellpixeln hat, sobald die Box mehr als naturalWidth/DPR CSS-Pixel
+ * breit ist — das Bild wirkte dadurch selbst innerhalb der "richtigen"
+ * CSS-Pixel-Grenze noch spürbar weich/hochskaliert (vom User bestätigt).
+ * Erst die Division durch devicePixelRatio hier liefert die tatsächliche
+ * "nie mehr als 1 Quellpixel pro Geräte-Pixel"-Grenze.
+ */
+function useNoUpscaleStyle(): [(img: HTMLImageElement | null) => void, CSSProperties | undefined] {
+  const [maxSize, setMaxSize] = useState<{ width: number; height: number } | null>(null);
+
+  const ref = useCallback((img: HTMLImageElement | null) => {
+    if (!img) return;
+    const apply = () => {
+      const dpr = window.devicePixelRatio || 1;
+      setMaxSize({ width: img.naturalWidth / dpr, height: img.naturalHeight / dpr });
+    };
+    // Aus dem Browser-Cache bedientes Bild ist schon "complete", bevor React
+    // den onLoad-Handler anhängt — derselbe Zwei-Wege-Ansatz wie checkOrientation
+    // in image-thumbnail-card.tsx.
+    if (img.complete && img.naturalWidth > 0) apply();
+    else img.addEventListener("load", apply, { once: true });
+  }, []);
+
+  if (!maxSize) return [ref, undefined];
+  return [ref, { maxWidth: `min(85vw, ${maxSize.width}px)`, maxHeight: `min(85vh, ${maxSize.height}px)` }];
+}
+
 function PreviewImage({ row }: { row: ImageSearchRow }) {
   const [current, setCurrent] = useState(row);
   const [previous, setPrevious] = useState<ImageSearchRow | null>(null);
@@ -91,21 +454,27 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
     return () => clearTimeout(timeout);
   }, [previous]);
 
+  const [previousRef, previousStyle] = useNoUpscaleStyle();
+  const [currentRef, currentStyle] = useNoUpscaleStyle();
+
   return (
     <div className="relative flex max-h-[85vh] max-w-[85vw] items-center justify-center">
       {previous && (
         // eslint-disable-next-line @next/next/no-img-element -- fertige
         // Vollbild-Datei aus S3, next/image bringt hier keine Optimierung.
         <img
+          ref={previousRef}
           src={previous.previewUrl}
           alt={previous.mainLocation ?? ""}
           className="absolute inset-0 m-auto max-h-[85vh] max-w-[85vw] object-contain"
           {...NO_CASUAL_DOWNLOAD_PROPS}
+          style={{ ...NO_CASUAL_DOWNLOAD_PROPS.style, ...previousStyle }}
         />
       )}
       {/* eslint-disable-next-line @next/next/no-img-element -- fertige
           Vollbild-Datei aus S3, next/image bringt hier keine Optimierung. */}
       <img
+        ref={currentRef}
         src={current.previewUrl}
         alt={current.mainLocation ?? ""}
         className={cn(
@@ -113,6 +482,7 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
           previous && !isEntering ? "opacity-0" : "transition-opacity duration-300 opacity-100"
         )}
         {...NO_CASUAL_DOWNLOAD_PROPS}
+        style={{ ...NO_CASUAL_DOWNLOAD_PROPS.style, ...currentStyle }}
       />
     </div>
   );
@@ -128,8 +498,8 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
  *
  * Hover-Panel unten ist bewusst dieselbe group/group-hover-Technik wie in
  * image-thumbnail-card.tsx (gleiche Klassen/Icons), nur das Ecken-Badge
- * oben links (Hauptadresse + Hash) bleibt — anders als das kleine
- * Adress-Badge auf der Kachel — beim Hovern sichtbar stehen.
+ * oben links (Hauptadresse) bleibt — anders als das kleine Adress-Badge
+ * auf der Kachel — beim Hovern sichtbar stehen.
  */
 export function ImagePreviewPopup({
   row,
@@ -141,6 +511,7 @@ export function ImagePreviewPopup({
   onDelete,
   onAddUserTag,
   onRemoveUserTag,
+  onToggleFavorite,
   onPrev,
   onNext,
   dotColor,
@@ -155,19 +526,32 @@ export function ImagePreviewPopup({
   onDelete: (row: ImageSearchRow) => void;
   onAddUserTag?: (tag: string) => void;
   onRemoveUserTag?: (tag: string, addedBy: string | null) => void;
+  onToggleFavorite?: () => void;
   /** Zum vorherigen/nächsten Bild der aktuell geladenen Liste wechseln —
    * fehlt (undefined), wenn es keins gibt (Rand der Liste), der Slider-
    * Button wird dann gar nicht erst gerendert statt deaktiviert angezeigt. */
   onPrev?: () => void;
   onNext?: () => void;
-  /** Standort-Punkt unten rechts im Bild (siehe ImageMapDot) — dieselbe
-   * Farbe wie der zugehörige Karten-Marker. */
+  /** Standort-Punkt oben rechts, neben Bearbeiten/Löschen/Schließen (siehe
+   * ImageMapDot) — dieselbe Farbe wie der zugehörige Karten-Marker. */
   dotColor: string;
   onLocateOnMap: (row: ImageSearchRow) => void;
 }) {
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState("");
   const [isLoginHintOpen, setIsLoginHintOpen] = useState(false);
+  // Wie auf der Kachel (image-thumbnail-card.tsx): hält das Hover-Fade-Panel
+  // offen, solange eines der per Portal gerenderten Popover (Kürzungs-Tooltip
+  // oder "+N"-Übersicht) noch geöffnet ist — sonst könnte das Panel wegrutschen
+  // (reines CSS group-hover), während sein eigener Popover-Inhalt noch sichtbar ist.
+  const [isOverflowPopoverOpen, setIsOverflowPopoverOpen] = useState(false);
+  // Explizites initialFocus auf den Schließen-Button: seit die Hauptadresse
+  // bei abgeschnittenem Text einen echten Button (TruncatedTooltipText/
+  // PopoverTrigger) enthält, ist SIE das erste fokussierbare Element im
+  // Popup — ohne dieses Ref würde Base UI beim Öffnen automatisch dorthin
+  // fokussieren (samt sichtbarem Fokusring um die Adresse), statt wie
+  // vorher auf gar nichts Auffälliges.
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   function submitNewTag() {
     const trimmed = newTagValue.trim();
@@ -176,21 +560,26 @@ export function ImagePreviewPopup({
     setIsAddingTag(false);
   }
 
-  // MAX_VISIBLE_* begrenzt nur den Kandidaten-Pool (Obergrenze, bevor
-  // überhaupt gemessen wird) — wie viele davon TATSÄCHLICH in eine Zeile
-  // passen, ermittelt useFittingCount per echter Breitenmessung (siehe
-  // dort: reduziert die sichtbare Anzahl, statt jedes Badge bis zur
-  // Unlesbarkeit zu stauchen). hiddenCount bezieht sich bewusst auf die
-  // GESAMTE Liste, nicht nur den Kandidaten-Pool, da "+N" beide
-  // Kürzungsgründe (Obergrenze UND Platzmangel) zusammenfassen muss. Die
-  // Hooks laufen unconditional (row kann null sein, wenn das Popup zu ist)
-  // — Rules of Hooks.
-  const secondaryLocationCandidates = row?.secondaryLocations.slice(0, MAX_VISIBLE_SECONDARY_LOCATIONS) ?? [];
+  // Anders als auf der schmalen Kachel (dort begrenzt MAX_VISIBLE_* den
+  // Kandidaten-Pool VOR jeder Messung, da eine ~300px breite Karte ohnehin
+  // nie mehr als eine Handvoll Badges zeigen könnte) gibt es hier KEINEN
+  // künstlichen Pool-Deckel: der Kandidaten-Pool ist immer die VOLLSTÄNDIGE
+  // Liste. Das breite Preview-Panel hat oft spürbar mehr Platz, als ein
+  // kleiner fester Deckel ausnutzen würde — mit einem Deckel blieben Zeilen
+  // dann vorzeitig halbleer stehen, obwohl noch echte Badges reingepasst
+  // hätten. useFittingCount ermittelt stattdessen per echter Breitenmessung,
+  // wie viele TATSÄCHLICH passen (reduziert die sichtbare Anzahl, statt
+  // jedes Badge bis zur Unlesbarkeit zu stauchen) — die Zeile füllt sich
+  // dadurch immer bis zum tatsächlich verfügbaren Platz, das letzte
+  // sichtbare Badge darf sich per FittingBadges zusätzlich per Ellipsis in
+  // den Restplatz hinein kürzen. Die Hooks laufen unconditional (row kann
+  // null sein, wenn das Popup zu ist) — Rules of Hooks.
+  const secondaryLocationCandidates = row?.secondaryLocations ?? [];
   const [secondaryLocationsRowRef, secondaryLocationsFitCount] = useFittingCount(secondaryLocationCandidates.length);
   const visibleSecondaryLocations = secondaryLocationCandidates.slice(0, secondaryLocationsFitCount);
   const hiddenLocationCount = (row?.secondaryLocations.length ?? 0) - visibleSecondaryLocations.length;
 
-  const tagCandidates = row?.tags.slice(0, MAX_VISIBLE_TAGS) ?? [];
+  const tagCandidates = row?.tags ?? [];
   const [tagsRowRef, tagsFitCount] = useFittingCount(tagCandidates.length);
   const visibleTags = tagCandidates.slice(0, tagsFitCount);
   const hiddenTagCount = (row?.tags.length ?? 0) - visibleTags.length;
@@ -204,8 +593,12 @@ export function ImagePreviewPopup({
       imageUploadedBy: row?.uploadedBy ?? "",
     }),
   }));
-  const userTagCandidates = userTagsWithPermission.slice(0, MAX_VISIBLE_TAGS);
-  const [userTagsRowRef, userTagsFitCount] = useFittingCount(userTagCandidates.length);
+  const userTagCandidates = userTagsWithPermission;
+  // isAddingTag als zusätzlicher Reset-Trigger (Parität zur Kachel, siehe
+  // dort für die ausführliche Begründung): ohne das bleibt die Zeile nach
+  // dem Einklappen des Eingabefelds auf einem zuvor (wegen des breiteren
+  // Felds) reduzierten Stand hängen, obwohl wieder mehr Badges passen würden.
+  const [userTagsRowRef, userTagsFitCount] = useFittingCount(userTagCandidates.length, isAddingTag);
   const visibleUserTags = userTagCandidates.slice(0, userTagsFitCount);
   const hiddenUserTagCount = userTagsWithPermission.length - visibleUserTags.length;
 
@@ -228,13 +621,20 @@ export function ImagePreviewPopup({
             sollte (nicht das Schließen), bleibt es hier bei der einfachen,
             robusten Lösung: KEINE data-closed:animate-out/fade-out-0 auf
             Overlay und Popup — beide verschwinden synchron mit dem
-            State-Update. Der Öffnen-Fade (data-open:*) bleibt erhalten. */}
+            State-Update. Der Öffnen-Fade (data-open:*) bleibt erhalten.
+            backdrop-blur-sm (auf Wunsch des Users, Hintergrund beim
+            geöffneten Preview verschwommen) ist bewusst NUR auf diesem
+            unanimiert schließenden Overlay gelandet — genau das war beim
+            damaligen Flacker-Bug die problematische Kombination
+            (backdrop-blur MIT animiertem Entfernen), nicht backdrop-blur an
+            sich. */}
         <DialogPrimitive.Backdrop
           data-slot="dialog-overlay"
-          className="fixed inset-0 isolate z-50 bg-black/10 duration-300 data-open:animate-in data-open:fade-in-0"
+          className="fixed inset-0 isolate z-50 bg-black/10 backdrop-blur-sm duration-300 data-open:animate-in data-open:fade-in-0"
         />
         <DialogPrimitive.Popup
           data-slot="dialog-content"
+          initialFocus={closeButtonRef}
           className="fixed inset-0 z-50 flex items-center justify-center p-8 outline-none data-open:animate-in data-open:fade-in-0"
           // Klick auf den Popup-Rahmen selbst (nicht auf ein Kind-Element,
           // also außerhalb des Bildes) schließt das Popup — dieselbe
@@ -245,10 +645,17 @@ export function ImagePreviewPopup({
           }}
         >
           {row && (
-            <>
-              {/* Slider-Buttons — außerhalb der Bild-Box (fixed relativ zum
-                  Viewport), damit sie unabhängig vom Bild-Seitenverhältnis
-                  immer an derselben Stelle links/rechts sitzen. Nur
+            <div className="flex items-center gap-4">
+              {/* Slider-Buttons als normale Flex-Geschwister der Bild-Box
+                  statt fixed am Viewport-Rand — vorher saßen sie IMMER an
+                  fester Stelle links/rechts im Viewport, bei einem
+                  schmaleren Bild (z.B. Hochformat, das lange nicht die
+                  vollen 85vw ausnutzt) dadurch weit außerhalb mit viel
+                  Leerraum dazwischen (vom User bemängelt). Als Flex-
+                  Geschwister rücken sie automatisch direkt an den
+                  tatsächlichen Bildrand heran, unabhängig vom
+                  Seitenverhältnis. shrink-0, damit sie bei einem sehr
+                  breiten Bild nicht selbst gestaucht werden. Nur
                   gerendert, wenn es tatsächlich ein Nachbar-Bild gibt (siehe
                   onPrev/onNext), statt sichtbar aber deaktiviert. */}
               {onPrev && (
@@ -260,34 +667,31 @@ export function ImagePreviewPopup({
                     event.stopPropagation();
                     onPrev();
                   }}
-                  className="fixed top-1/2 left-4 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border border-primary/60 bg-primary/40 text-primary-foreground backdrop-blur-sm outline-none transition-colors hover:bg-primary/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="z-10 flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/60 bg-primary/40 text-primary-foreground backdrop-blur-sm outline-none transition-colors hover:bg-primary/50 focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <ChevronLeft className="size-5" />
                 </button>
               )}
-              {onNext && (
-                <button
-                  type="button"
-                  aria-label="Nächstes Bild"
-                  data-testid="image-preview-next"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNext();
-                  }}
-                  className="fixed top-1/2 right-4 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border border-primary/60 bg-primary/40 text-primary-foreground backdrop-blur-sm outline-none transition-colors hover:bg-primary/50 focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  <ChevronRight className="size-5" />
-                </button>
-              )}
 
-              {/* border-white/10: hebt das Bild vom (ebenfalls dunklen)
-                  Overlay-Hintergrund ab, dieselbe dezente Umrandung wie bei
-                  Hochformat-Bildern auf der Kachel. duration-300 (statt der
-                  Tailwind-Standarddauer von 150ms): der Öffnen-Fade sollte
-                  bewusst spürbar sein, nicht nur angedeutet — [[data-open]_&]
-                  liest den offen-Zustand vom Popup-Vorfahren. */}
+              {/* outline-4 statt border-4: hebt das Bild deutlich vom
+                  (ebenfalls dunklen) Overlay-Hintergrund ab, als es die
+                  ursprünglich sehr dezente border-white/10 tat (auf Wunsch
+                  des Users dicker, 3-4px). Ein ECHTER border-4 hier hätte
+                  das Bild/den unteren Info-Panel-Verlauf um genau seine
+                  Breite eingerückt (border sitzt INNERHALB der Box, wird
+                  von overflow-hidden mitbegrenzt) — sichtbar als heller
+                  Streifen ("Spalt") zwischen dem dunklen Panel-Verlauf
+                  unten und dem eigentlichen Bildrand (per Pixel-Messung
+                  bestätigt: rgb(38,38,38) Rand-Streifen vs. rgb(20,19,17)
+                  Panel direkt daneben). outline wird dagegen AUSSERHALB
+                  der Box gezeichnet, verkleinert den Bildinhalt nicht und
+                  folgt in modernen Browsern trotzdem dem rounded-xl.
+                  duration-300 (statt der Tailwind-Standarddauer von
+                  150ms): der Öffnen-Fade sollte bewusst spürbar sein,
+                  nicht nur angedeutet — [[data-open]_&] liest den
+                  offen-Zustand vom Popup-Vorfahren. */}
               <div
-                className="group relative flex max-h-[85vh] max-w-[85vw] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black duration-300 [[data-open]_&]:animate-in [[data-open]_&]:fade-in-0"
+                className="group relative flex max-h-[85vh] max-w-[85vw] items-center justify-center overflow-hidden rounded-xl bg-black outline-4 outline-white/15 duration-300 [[data-open]_&]:animate-in [[data-open]_&]:fade-in-0"
                 data-testid={`image-preview-${row.id}`}
               >
                 {/* Bewusst KEIN key={row.id}: PreviewImage muss über den
@@ -295,26 +699,116 @@ export function ImagePreviewPopup({
                     vorherige Bild für den Crossfade selbst zwischenhält. */}
                 <PreviewImage row={row} />
 
-                {/* Oben links: Hauptadresse + Hash in einem Badge (statt
-                    zwei getrennten), dauerhaft sichtbar (nicht wie das
-                    kleine Kachel-Badge beim Hovern ausblendend). */}
-                <Badge className="absolute top-3 left-3 h-9 cursor-default gap-2 border-primary/60 bg-primary/40 px-3 text-sm text-primary-foreground backdrop-blur-sm">
+                {/* Oben links: Hauptadresse, dauerhaft sichtbar (nicht wie
+                    das kleine Kachel-Badge beim Hovern ausblendend).
+                    TruncatedTooltipText sorgt bei abgeschnittenem Text für
+                    einen gestylten Tooltip (Popover-Look wie auf der
+                    Kachel) statt eines nativen title-Tooltips. Die "ID"
+                    (images.hash) sitzt NICHT mehr hier, sondern nur beim
+                    Hovern links neben der Button-Gruppe oben rechts (siehe
+                    dort, CopyableId) — auf Wunsch des Users. BUTTON_GLASS_CLASS
+                    statt der festen Coral-Fläche: nachdem die Button-Gruppe
+                    rechts auf neutrales Glas umgestellt wurde, wirkte dieses
+                    Badge als einziges noch kräftig coral-farbenes Element
+                    wie ein Fremdkörper — jetzt eine durchgängige Glas-Optik
+                    über die ganze obere Leiste, Coral bleibt als Akzent nur
+                    noch bei Icon/Text (text-primary statt
+                    text-primary-foreground, das für die vorherige satte
+                    Fläche gedacht war). */}
+                <Badge className={cn("absolute top-3 left-3 h-9 cursor-default gap-2 px-3 text-sm text-primary", BUTTON_GLASS_CLASS)}>
                   <MapPin className="size-4 shrink-0" />
-                  <span className="max-w-96 truncate">
-                    {row.mainLocation ?? EMPTY_PLACEHOLDER} - {row.hash}
+                  {/* flex statt eines "nackten" Spans: der PopoverTrigger
+                      (<button>) in TruncatedTooltipText ist inline-block
+                      mit vertical-align:baseline — das reserviert unterhalb
+                      automatisch den Zeilenabstand der Schrift als Lücke
+                      (derselbe Effekt wie bei <img> im Textfluss), wodurch
+                      der Text gegenüber dem Icon zu weit oben saß. Als
+                      Flex-Container mit items-center wird der Trigger
+                      stattdessen sauber vertikal zentriert statt an der
+                      Baseline ausgerichtet. */}
+                  <span className="flex max-w-96 min-w-0 items-center">
+                    <TruncatedTooltipText text={row.mainLocation ?? EMPTY_PLACEHOLDER} testId="image-preview-mainlocation-hint" />
                   </span>
                 </Badge>
 
-                {/* Oben rechts: Schließen-Button im selben Stil wie
-                    Bearbeiten/Löschen auf der Kachel (icon-xs/secondary),
-                    statt eines eigenen Badge-Looks. */}
-                <DialogPrimitive.Close
-                  aria-label="Schließen"
-                  data-testid="image-preview-close"
-                  className={cn(buttonVariants({ variant: "secondary", size: "icon-xs" }), "absolute top-3 right-3 bg-primary/20 text-primary hover:bg-primary/30")}
-                >
-                  <XIcon className="size-3.5" />
-                </DialogPrimitive.Close>
+                {/* Oben rechts: Bearbeiten/Löschen/Standort-Punkt/Schließen
+                    jetzt als EINE einheitliche Gruppe (vorher: Bearbeiten/
+                    Löschen im unteren Hover-Panel, Standort-Punkt unten
+                    rechts am Bild, nur Schließen oben) — auf Wunsch des
+                    Users zusammengefasst, etwas größer (icon-sm/size-7 statt
+                    icon-xs/size-6). Hintergrund neutrales "Frosted Glass"
+                    (bg-black/30 + backdrop-blur-sm + border-white/15, siehe
+                    BUTTON_GLASS_CLASS) statt einer festen Marken-Farbe: eine
+                    frühere Coral-Fläche (bg-primary/40) wirkte wie ein
+                    aufgesetztes Chip, unabhängig vom jeweiligen
+                    Bildausschnitt dahinter — das neutrale Glas passt sich
+                    stattdessen an JEDEN Bildinhalt an (dunkel genug für
+                    Kontrast auf hellen Fotostellen, bleibt aber überall
+                    gleich). Icon-/Textfarbe bleibt weiterhin Coral
+                    (Bearbeiten) bzw. destructive-Rot (Löschen) für die
+                    gewohnte Bedeutungs-Farbcodierung — nur die Fläche
+                    dahinter ist jetzt neutral. "ID"/Bearbeiten/Löschen
+                    blenden erst beim Hovern ein (dieselbe opacity-0/
+                    group-hover-Technik wie beim unteren Info-Panel) —
+                    Standort-Punkt und Schließen bleiben dagegen dauerhaft
+                    sichtbar. */}
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                  <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <CopyableId id={row.hash} />
+                    {canEdit && (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="secondary"
+                        className={cn(BUTTON_GLASS_CLASS, "text-primary")}
+                        aria-label="Bearbeiten"
+                        data-testid={`image-preview-edit-${row.id}`}
+                        onClick={() => onEdit(row)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="destructive"
+                        className={cn(BUTTON_GLASS_CLASS, "text-destructive")}
+                        aria-label="Löschen"
+                        data-testid={`image-preview-delete-${row.id}`}
+                        onClick={() => onDelete(row)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                  {/* Immer sichtbar (nicht im Hover-Fade-Wrapper von
+                      Bearbeiten/Löschen/ID oben) — Favorisieren ist eine für
+                      jeden Betrachter jederzeit greifbare Aktion, keine
+                      Owner-/Admin-Aktion wie Bearbeiten/Löschen. */}
+                  <FavoriteButton
+                    isFavorite={row.isFavorite}
+                    isLoggedIn={Boolean(currentUser?.id)}
+                    onToggle={() => onToggleFavorite?.()}
+                    testId={`image-preview-favorite-${row.id}`}
+                    loginLinkTestId={`image-preview-favorite-login-link-${row.id}`}
+                  />
+                  {/* bordered={false}: der dezente weiße Rand (Standard in
+                      diesem Popup, siehe ImageMapDot) störte hier laut User —
+                      genau wie auf der Kachel (dort ohnehin schon ohne Rand).
+                      Der Punkt selbst ist ohnehin voll deckend (siehe
+                      ImageMapDot), braucht die Glas-Behandlung der anderen
+                      Buttons hier nicht. */}
+                  <ImageMapDot className="size-7" color={dotColor} onClick={() => onLocateOnMap(row)} bordered={false} />
+                  <DialogPrimitive.Close
+                    ref={closeButtonRef}
+                    aria-label="Schließen"
+                    data-testid="image-preview-close"
+                    className={cn(buttonVariants({ variant: "secondary", size: "icon-sm" }), BUTTON_GLASS_CLASS, "text-primary")}
+                  >
+                    <XIcon className="size-4" />
+                  </DialogPrimitive.Close>
+                </div>
 
                 {/* Hover-Fade-Panel unten — 1:1 dieselbe Technik wie auf der
                     Kachel (siehe image-thumbnail-card.tsx), nur etwas größer
@@ -322,97 +816,45 @@ export function ImagePreviewPopup({
                 <div
                   className={cn(
                     "pointer-events-none absolute inset-x-0 bottom-0 translate-y-1 opacity-0 transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100",
-                    // Bleibt offen, solange das Tag-Eingabefeld oder der
-                    // Login-Hinweis-Popover aktiv ist — siehe Begründung in
+                    // Bleibt offen, solange das Tag-Eingabefeld, der
+                    // Login-Hinweis-Popover oder eines der Kürzungs-/"+N"-
+                    // Popover aktiv ist — siehe Begründung in
                     // image-thumbnail-card.tsx (dieselbe Technik).
-                    (isAddingTag || isLoginHintOpen) && "translate-y-0 opacity-100"
+                    (isAddingTag || isLoginHintOpen || isOverflowPopoverOpen) && "translate-y-0 opacity-100"
                   )}
                 >
                   <div className="pointer-events-auto space-y-1.5 bg-gradient-to-t from-background/95 via-background/75 to-transparent px-4 pt-8 pb-3">
                     <div className="-mt-8 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
 
-                    {/* items-end statt items-center: die Bearbeiten-/
-                        Löschen-Buttons (nur bei canEdit/canDelete) sind
-                        höher als das Adress-Badge und machen dadurch DIESE
-                        Zeile höher als die Nebenorte-/Tags-/User-Tags-
-                        Zeilen darunter. Bei items-center hätte das Badge
-                        dadurch unten UND oben etwas Luft ("zentriert" in
-                        der höheren Zeile) — der Abstand zur nächsten Zeile
-                        (space-y-1.5, überall gleich 6px Marge) wirkte
-                        dadurch hier sichtbar größer als zwischen den
-                        anderen Zeilen. items-end lässt das Badge stattdessen
-                        bündig mit dem Zeilenende abschließen, genau wie bei
-                        den anderen (dort füllt der Zeileninhalt die Zeile
-                        exakt aus) — die 6px Marge wirkt dadurch überall
-                        gleich. */}
-                    <div className="flex items-end justify-between gap-2">
-                      <div className="flex items-center gap-1.5 overflow-hidden">
-                        <MapPin className="size-3.5 shrink-0 text-primary" />
-                        {/* Badge statt einfachem <span> — sonst fehlt hier das
-                            Innenpolster, das jede andere Zeile (Nebenadressen/
-                            Tags/User-Tags) durch ihre Badges bekommt, und der
-                            Text sitzt eine Nuance weiter links als der Rest
-                            ("Einrückung passt nicht"). */}
-                        <Badge
-                          variant="secondary"
-                          // Exakt derselbe Stil wie das dauerhaft sichtbare
-                          // Adress-Badge auf der Kachel ohne Hover (siehe
-                          // image-thumbnail-card.tsx) — auf Wunsch des Users
-                          // für Haupt- UND Nebenadressen, auf beiden
-                          // Oberflächen identisch: text-primary-foreground
-                          // löst sich automatisch je nach Theme in Weiß
-                          // (Light) bzw. Schwarz (Dark) auf, passend zum
-                          // satten primary/40-Hintergrund.
-                          className="min-w-0 shrink cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
-                          title={row.mainLocation ?? undefined}
-                        >
-                          {/* truncate auf einem eigenen inneren <span> statt
-                              direkt auf dem Badge: Badge ist selbst ein
-                              Flex-Container (inline-flex, siehe badge.tsx) —
-                              text-overflow:ellipsis wirkt auf einem
-                              Flex-Element NICHT auf dessen eigenen Text, der
-                              würde nur hart ohne "…" abgeschnitten. Als Kind
-                              des Flex-Badges wird der Span geblockified
-                              (CSS-Spec) und ist damit ein gültiger Block-
-                              Container, in dem Ellipsis tatsächlich greift. */}
-                          <span className="min-w-0 truncate">{row.mainLocation ?? EMPTY_PLACEHOLDER}</span>
-                        </Badge>
-                      </div>
-                      {(canEdit || canDelete) && (
-                        <div className="flex shrink-0 gap-1.5">
-                          {canEdit && (
-                            <Button
-                              type="button"
-                              size="icon-xs"
-                              variant="secondary"
-                              className="bg-primary/20 text-primary hover:bg-primary/30"
-                              aria-label="Bearbeiten"
-                              data-testid={`image-preview-edit-${row.id}`}
-                              onClick={() => onEdit(row)}
-                            >
-                              <Pencil className="size-3.5" />
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button
-                              type="button"
-                              size="icon-xs"
-                              variant="destructive"
-                              // Kräftiger als die Standard-destructive-
-                              // Variante — dieselbe Verstärkung wie beim
-                              // Papierkorb-Button auf der Kachel (siehe
-                              // image-thumbnail-card.tsx), auf Wunsch des
-                              // Users deutlicher als Gefahren-/Warnaktion.
-                              className="border border-destructive/40 bg-destructive/30 hover:bg-destructive/50"
-                              aria-label="Löschen"
-                              data-testid={`image-preview-delete-${row.id}`}
-                              onClick={() => onDelete(row)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                    {/* Bearbeiten/Löschen sitzen jetzt oben rechts (siehe
+                        dortiger Kommentar) — diese Zeile enthält daher nur
+                        noch die Hauptadresse, keine zweite Spalte mehr. */}
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <MapPin className="size-3.5 shrink-0 text-primary" />
+                      {/* Badge statt einfachem <span> — sonst fehlt hier das
+                          Innenpolster, das jede andere Zeile (Nebenadressen/
+                          Tags/User-Tags) durch ihre Badges bekommt, und der
+                          Text sitzt eine Nuance weiter links als der Rest
+                          ("Einrückung passt nicht"). */}
+                      <Badge
+                        variant="secondary"
+                        // BUTTON_GLASS_CLASS wie Tags/User-Tags — auf Wunsch
+                        // des Users nach dem Stiltausch nun einheitlich
+                        // überall im unteren Info-Panel dieselbe neutrale
+                        // Glas-Optik, für Haupt- UND Nebenadressen hier
+                        // identisch.
+                        className={cn("min-w-0 shrink cursor-default text-xs text-primary", BUTTON_GLASS_CLASS)}
+                      >
+                        {/* TruncatedTooltipText statt Span+title: bei echter
+                            Ellipsen-Kürzung derselbe gestylte Popover-Look wie
+                            die "+N"-Chips statt eines verzögerten nativen
+                            Browser-Tooltips (Parität zur Kachel). */}
+                        <TruncatedTooltipText
+                          text={row.mainLocation ?? EMPTY_PLACEHOLDER}
+                          testId={`image-preview-mainlocation-panel-hint-${row.id}`}
+                          onOpenChange={setIsOverflowPopoverOpen}
+                        />
+                      </Badge>
                     </div>
 
                     {visibleSecondaryLocations.length > 0 && (
@@ -433,35 +875,51 @@ export function ImagePreviewPopup({
                             Platzmangel die ANZAHL der gezeigten Badges,
                             jedes einzelne bleibt an seiner eigenen max-w-
                             Grenze lesbar. */}
-                        <div ref={secondaryLocationsRowRef} className="flex flex-nowrap items-center gap-1 overflow-hidden">
-                          {visibleSecondaryLocations.map((location) => (
-                            <Badge
-                              key={location}
-                              variant="secondary"
-                              // max-w-full statt eines festen px-Werts (siehe
-                              // gleiche Begründung in image-thumbnail-card.tsx):
-                              // Ellipsis greift nur noch, wenn ein einzelner
-                              // Ortsname allein breiter als die ganze Zeile
-                              // ist — useFittingCount regelt die Anzahl
-                              // bereits nach Platz, shrink-0 verhindert, dass
-                              // mehrere Badges sich gegenseitig stauchen.
-                              className="max-w-full shrink-0 cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
-                              title={location}
-                            >
-                              {/* truncate auf innerem <span>, nicht direkt
-                                  auf dem (Flex-)Badge — siehe Kommentar bei
-                                  der Hauptadresse oben. */}
-                              <span className="min-w-0 truncate">{location}</span>
-                            </Badge>
-                          ))}
-                          {hiddenLocationCount > 0 && (
-                            <Badge
-                              variant="secondary"
-                              className="shrink-0 cursor-default border-primary/60 bg-primary/40 text-[11px] text-primary-foreground backdrop-blur-sm"
-                            >
-                              +{hiddenLocationCount}
-                            </Badge>
-                          )}
+                        {/* min-w-0 nötig: ein flex-1-Kind bleibt sonst per
+                            CSS-Spec (min-width: auto) mindestens so breit
+                            wie sein Inhalt und wächst bei vielen Badges über
+                            den tatsächlich verfügbaren Platz hinaus — genau
+                            der Fall, seit der Kandidaten-Pool nicht mehr
+                            künstlich gedeckelt ist. Ohne min-w-0 melden
+                            scrollWidth/clientWidth dann fälschlich "kein
+                            Overflow" (beide wachsen gemeinsam mit), obwohl
+                            der Inhalt sichtbar aus dem Panel herausläuft. */}
+                        <div ref={secondaryLocationsRowRef} className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+                          {/* max-w-full statt eines festen px-Werts (siehe
+                              gleiche Begründung in image-thumbnail-card.tsx):
+                              useFittingCount regelt die Anzahl bereits nach
+                              Platz, FittingBadges lässt zusätzlich nur das
+                              letzte sichtbare Badge in den Restplatz hinein
+                              per Ellipsis schrumpfen (Parität zur Kachel). */}
+                          <FittingBadges
+                            items={visibleSecondaryLocations}
+                            getKey={(location) => location}
+                            badgeClassName={cn("max-w-full cursor-default text-xs text-primary", BUTTON_GLASS_CLASS)}
+                          >
+                            {(location) => (
+                              <TruncatedTooltipText
+                                text={location}
+                                testId={`image-preview-location-hint-${row.id}-${location}`}
+                                onOpenChange={setIsOverflowPopoverOpen}
+                              />
+                            )}
+                          </FittingBadges>
+                          <OverflowBadgesPopover
+                            className={cn("ml-auto text-primary", BUTTON_GLASS_CLASS)}
+                            hiddenCount={hiddenLocationCount}
+                            items={row.secondaryLocations}
+                            testId={`image-preview-locations-overflow-${row.id}`}
+                            onOpenChange={setIsOverflowPopoverOpen}
+                            renderItem={(location) => (
+                              <Badge
+                                key={location}
+                                variant="secondary"
+                                className={cn("max-w-full shrink-0 cursor-default text-xs text-primary", BUTTON_GLASS_CLASS)}
+                              >
+                                <span className="min-w-0 truncate">{location}</span>
+                              </Badge>
+                            )}
+                          />
                         </div>
                       </div>
                     )}
@@ -474,25 +932,39 @@ export function ImagePreviewPopup({
                         würde). */}
                     {visibleTags.length > 0 && (
                       <div className="flex items-start gap-1.5">
-                        <TagIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                        <div ref={tagsRowRef} className="flex flex-nowrap items-center gap-1 overflow-hidden">
-                          {visibleTags.map((tag) => (
-                            <Badge
-                              key={tag}
-                              variant="secondary"
-                              className="max-w-full shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary"
-                            >
-                              {/* truncate auf innerem <span>, nicht direkt
-                                  auf dem (Flex-)Badge — siehe Kommentar bei
-                                  der Hauptadresse. */}
-                              <span className="min-w-0 truncate">{tag}</span>
-                            </Badge>
-                          ))}
-                          {hiddenTagCount > 0 && (
-                            <Badge variant="secondary" className="shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary">
-                              +{hiddenTagCount}
-                            </Badge>
-                          )}
+                        <TagIcon className={cn("mt-0.5 size-3.5 shrink-0", TAG_ACCENT_TEXT_CLASS)} />
+                        {/* min-w-0 nötig — siehe Kommentar bei den
+                            Nebenadressen oben. */}
+                        <div ref={tagsRowRef} className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+                          <FittingBadges
+                            items={visibleTags}
+                            getKey={(tag) => tag}
+                            badgeClassName={cn("max-w-full cursor-default text-xs", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+                          >
+                            {(tag) => (
+                              <TruncatedTooltipText
+                                text={tag}
+                                testId={`image-preview-tag-hint-${row.id}-${tag}`}
+                                onOpenChange={setIsOverflowPopoverOpen}
+                              />
+                            )}
+                          </FittingBadges>
+                          <OverflowBadgesPopover
+                            className={cn("ml-auto", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+                            hiddenCount={hiddenTagCount}
+                            items={row.tags}
+                            testId={`image-preview-tags-overflow-${row.id}`}
+                            onOpenChange={setIsOverflowPopoverOpen}
+                            renderItem={(tag) => (
+                              <Badge
+                                key={tag}
+                                variant="secondary"
+                                className={cn("max-w-full shrink-0 cursor-default text-xs", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+                              >
+                                <span className="min-w-0 truncate">{tag}</span>
+                              </Badge>
+                            )}
+                          />
                         </div>
                       </div>
                     )}
@@ -504,44 +976,53 @@ export function ImagePreviewPopup({
                         in beiden Fällen eine echte Aktion statt eines reinen
                         Platzhalters. */}
                     <div className="flex items-start gap-1.5" data-testid={`image-preview-user-tags-${row.id}`}>
-                      <UserTagsIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                      <div ref={userTagsRowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
-                        {visibleUserTags.map((entry) => (
-                          // Badge bleibt shrink-0 (die ANZAHL passt sich über
-                          // useFittingCount an, nicht die Breite jedes
-                          // einzelnen Badges) — truncate sitzt auf einem
-                          // eigenen inneren <span> statt direkt auf dem
-                          // Badge: hier steckt (anders als bei Neben-
-                          // adressen/Tags) noch der Entfernen-Button mit im
-                          // Badge, truncate träfe sonst den ganzen Flex-
-                          // Inhalt inkl. Button statt nur den Tag-Text.
-                          <Badge
-                            key={`${entry.tag}-${entry.addedBy ?? "legacy"}`}
-                            variant="secondary"
-                            className="max-w-full shrink-0 cursor-default gap-1 border-primary/30 bg-primary/20 text-xs text-primary"
+                      <UserTagsIcon className={cn("mt-0.5 size-3.5 shrink-0", TAG_ACCENT_TEXT_CLASS)} />
+                      {/* min-w-0 nötig — siehe Kommentar bei den
+                          Nebenadressen weiter oben. */}
+                      <div ref={userTagsRowRef} className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+                        {/* Während der Eingabe (isAddingTag) verschwindet die
+                            Badge-Liste zugunsten des Eingabefelds — siehe
+                            dessen eigenen Kommentar weiter unten (Parität zur
+                            Kachel, siehe dort für die ausführliche
+                            Begründung). */}
+                        {!isAddingTag && (
+                          <FittingBadges
+                            items={visibleUserTags}
+                            getKey={(entry) => `${entry.tag}-${entry.addedBy ?? "legacy"}`}
+                            badgeClassName={cn("max-w-full gap-1 cursor-default text-xs", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
                           >
-                            <span className="min-w-0 truncate">{entry.tag}</span>
-                            {entry.canManage && (
-                              <button
-                                type="button"
-                                aria-label={`Tag "${entry.tag}" entfernen`}
-                                data-testid={`image-preview-user-tag-remove-${row.id}-${entry.tag}`}
-                                className="shrink-0 cursor-pointer rounded-full hover:text-destructive"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  onRemoveUserTag?.(entry.tag, entry.addedBy);
-                                }}
-                              >
-                                <X className="size-3" />
-                              </button>
+                            {(entry) => (
+                              <>
+                                <TruncatedTooltipText
+                                  text={entry.tag}
+                                  testId={`image-preview-user-tag-hint-${row.id}-${entry.tag}`}
+                                  onOpenChange={setIsOverflowPopoverOpen}
+                                />
+                                {entry.canManage && (
+                                  <button
+                                    type="button"
+                                    aria-label={`Tag "${entry.tag}" entfernen`}
+                                    data-testid={`image-preview-user-tag-remove-${row.id}-${entry.tag}`}
+                                    className="shrink-0 cursor-pointer rounded-full hover:text-destructive"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onRemoveUserTag?.(entry.tag, entry.addedBy);
+                                    }}
+                                  >
+                                    <X className="size-3" />
+                                  </button>
+                                )}
+                              </>
                             )}
-                          </Badge>
-                        ))}
-                        {hiddenUserTagCount > 0 && (
-                          <Badge variant="secondary" className="shrink-0 cursor-default border-primary/30 bg-primary/20 text-xs text-primary">
-                            +{hiddenUserTagCount}
-                          </Badge>
+                          </FittingBadges>
                         )}
+                        {/* "+" bleibt IN der normalen Zeilenreihenfolge
+                            (shrink-0, kein ml-auto) — sitzt also immer
+                            unmittelbar rechts vom letzten sichtbaren
+                            User-Tag. Nur "+N" (weiter unten) bekommt sein
+                            eigenes ml-auto und rückt für sich an den rechten
+                            Rand (Parität zur Kachel — dort war die
+                            Reihenfolge früher vertauscht). */}
                         {currentUser?.id ? (
                           isAddingTag ? (
                             <input
@@ -562,7 +1043,20 @@ export function ImagePreviewPopup({
                               }}
                               onBlur={submitNewTag}
                               placeholder="Tag…"
-                              className="w-20 shrink-0 rounded border border-primary/30 bg-transparent px-1.5 py-0.5 text-xs text-white outline-none"
+                              // Pill-Stil wie die Tag-Badges daneben statt
+                              // eines unauffälligen Rechteck-Feldes (Parität
+                              // zur Kachel, dort dasselbe Muster mit deren
+                              // eigenem Coral-Stil) — hier mit den bereits
+                              // etablierten Zeilen-Klassen (TAG_GLASS_CLASS/
+                              // TAG_ACCENT_TEXT_CLASS) statt fester Farb-
+                              // Literale. flex-1 statt fester Breite: das
+                              // Feld füllt beim Öffnen die ganze Zeile aus
+                              // (bis auf den Platz für "+N" rechts).
+                              className={cn(
+                                "h-5 min-w-0 flex-1 animate-in appearance-none rounded-4xl border bg-clip-padding px-2 text-xs placeholder:text-white/40 outline-none transition-colors duration-150 zoom-in-95 fade-in-0",
+                                TAG_ACCENT_TEXT_CLASS,
+                                TAG_GLASS_CLASS
+                              )}
                             />
                           ) : (
                             <button
@@ -610,22 +1104,57 @@ export function ImagePreviewPopup({
                             </PopoverContent>
                           </Popover>
                         )}
+                        <OverflowBadgesPopover
+                          className={cn("ml-auto", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+                          hiddenCount={hiddenUserTagCount}
+                          items={userTagsWithPermission}
+                          testId={`image-preview-user-tags-overflow-${row.id}`}
+                          onOpenChange={setIsOverflowPopoverOpen}
+                          renderItem={(entry) => (
+                            <Badge
+                              key={`${entry.tag}-${entry.addedBy ?? "legacy"}`}
+                              variant="secondary"
+                              className={cn("max-w-full shrink-0 cursor-default gap-1 text-xs", TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+                            >
+                              <span className="min-w-0 truncate">{entry.tag}</span>
+                              {entry.canManage && (
+                                <button
+                                  type="button"
+                                  aria-label={`Tag "${entry.tag}" entfernen`}
+                                  data-testid={`image-preview-user-tag-remove-${row.id}-${entry.tag}`}
+                                  className="shrink-0 cursor-pointer rounded-full hover:text-destructive"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onRemoveUserTag?.(entry.tag, entry.addedBy);
+                                  }}
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              )}
+                            </Badge>
+                          )}
+                        />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Standort-Punkt unten rechts, dieselbe Farbe wie der
-                    zugehörige Karten-Marker — dauerhaft sichtbar, nach dem
-                    Hover-Panel im JSX (steht damit über dessen Gradient-
-                    Fläche). */}
-                <ImageMapDot
-                  className="absolute right-3 bottom-3"
-                  color={dotColor}
-                  onClick={() => onLocateOnMap(row)}
-                />
               </div>
-            </>
+              {onNext && (
+                <button
+                  type="button"
+                  aria-label="Nächstes Bild"
+                  data-testid="image-preview-next"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onNext();
+                  }}
+                  className="z-10 flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/60 bg-primary/40 text-primary-foreground backdrop-blur-sm outline-none transition-colors hover:bg-primary/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <ChevronRight className="size-5" />
+                </button>
+              )}
+            </div>
           )}
         </DialogPrimitive.Popup>
       </DialogPortal>

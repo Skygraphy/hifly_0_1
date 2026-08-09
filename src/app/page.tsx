@@ -59,7 +59,7 @@ export default async function Home({
         }}
       />
       <div
-        className="pointer-events-none absolute h-[420px] w-[420px] rounded-full bg-[#FF7F50] opacity-[0.15] blur-[140px]"
+        className="pointer-events-none absolute h-[420px] w-[420px] rounded-full bg-[#FF6F61] opacity-[0.15] blur-[140px]"
         aria-hidden
       />
       <div className="relative flex flex-col items-center gap-8">

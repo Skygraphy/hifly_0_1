@@ -275,7 +275,35 @@ export const images = pgTable(
       "images_standort_check",
       sql`(${table.administrativeUnitId} IS NULL) <> (${table.regionId} IS NULL)`
     ),
+    // hash dient Usern als eindeutige Kennung zum Identifizieren/Bestellen
+    // eines Bilds (siehe ImageSearchRow.hash) — DB-seitig erzwungen, statt
+    // sich nur auf die Eindeutigkeit des Ordnernamens beim Upload zu
+    // verlassen.
+    uniqueIndex("images_hash_idx").on(table.hash),
   ]
+);
+
+// Echte m:n-Beziehung (ein Bild kann von vielen Usern favorisiert sein,
+// unabhängig vom Bild selbst) — anders als user_tags daher KEINE jsonb-
+// Spalte auf images, sondern eine eigene Zwischentabelle, gleiches Muster
+// wie regionAdministrativeUnits/userSettings (Composite PK statt
+// zusätzlichem surrogate key + uniqueIndex — erzwingt "ein Favorit pro
+// User pro Bild" bereits über den Primärschlüssel selbst). onDelete
+// "cascade" an beiden FKs: ein gelöschter User/Bild räumt seine
+// Favoriten-Zeilen automatisch mit auf, kein manuelles Aufräumen in
+// deleteImage/deleteImages nötig.
+export const imageFavorites = pgTable(
+  "image_favorites",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    imageId: text("image_id")
+      .notNull()
+      .references(() => images.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.imageId] })]
 );
 
 // Legt fest, welche konkreten Verwaltungseinheiten/Regionen ein bestimmter

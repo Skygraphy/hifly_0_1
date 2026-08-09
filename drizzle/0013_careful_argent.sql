@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "images_hash_idx" ON "images" USING btree ("hash");

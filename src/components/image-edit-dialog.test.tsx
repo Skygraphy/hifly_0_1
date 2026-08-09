@@ -26,6 +26,7 @@ const baseRow: ImageSearchRow = {
   printVisible: false,
   printRanking: null,
   uploadedBy: "user-1",
+  isFavorite: false,
   thumbUrl: "https://cdn.example/img-1/thumb.jpg",
   previewUrl: "https://cdn.example/img-1/preview.jpg",
   administrativeUnitId: "unit-1",

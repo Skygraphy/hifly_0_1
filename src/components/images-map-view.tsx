@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { APIProvider, Map, Marker, useMap } from "@vis.gl/react-google-maps";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { APIProvider, InfoWindow, Map, Marker, useMap } from "@vis.gl/react-google-maps";
+import { MapPin } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { ImageLocation } from "@/app/images/actions";
 import type { AdministrativeUnit } from "@/lib/administrative-units";
 import type { Region } from "@/lib/regions";
 import type { StandortRef } from "@/lib/standort";
+import { BUTTON_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { resolveTargetLevel, resolveImageColor, FALLBACK_MARKER_COLOR } from "@/lib/image-map-colors";
+import { thumbUrlFor } from "@/lib/image-folder";
+import { cn } from "@/lib/utils";
 
 // Zentriert auf Österreich — Fallback für den leeren Zustand (keine
 // Koordinaten zum Filter) bzw. bevor die erste Karten-Abfrage zurück ist.
@@ -56,7 +61,7 @@ function computeBounds(locations: ImageLocation[]): SimpleBounds | null {
 
 // An das App-Theme angelehnt (siehe globals.css .dark-Block): fast
 // schwarzer Hintergrund, gedämpfte Grautöne für Straßen/Flächen, Koralle
-// (--primary: #FF7F50) als einziger Akzent auf der Landesgrenze. Roads
+// (--primary: #FF6F61) als einziger Akzent auf der Landesgrenze. Roads
 // bewusst OHNE eigene Stroke-Farbe: bei einer Landesansicht (Zoom 7) sind
 // Straßenlinien nur wenige Sub-Pixel breit — jede stylers-Stroke-Farbe
 // (auch mit kleinem weight) füllt dann die komplette sichtbare Linie und
@@ -78,7 +83,7 @@ const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
   { elementType: "labels.text.fill", stylers: [{ color: "#7a7a7a" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#171717" }] },
   { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#2a2a2a" }] },
-  { featureType: "administrative.country", elementType: "geometry.stroke", stylers: [{ color: "#FF7F50" }, { weight: 1.4 }] },
+  { featureType: "administrative.country", elementType: "geometry.stroke", stylers: [{ color: "#FF6F61" }, { weight: 1.4 }] },
   // Orts-Labels und Straßen-Fills leicht warm zur Koralle hin getönt statt
   // reinem Neutralgrau — dezent genug, um bei Straßen nicht dieselbe
   // "Stroke frisst die ganze Linie"-Falle wie zuvor zu treffen (das betrifft
@@ -120,7 +125,7 @@ const LIGHT_MAP_STYLE: google.maps.MapTypeStyle[] = [
   { elementType: "labels.text.fill", stylers: [{ color: "#7d7671" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#f7f4f1" }] },
   { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#ece7e2" }] },
-  { featureType: "administrative.country", elementType: "geometry.stroke", stylers: [{ color: "#d9603f" }, { weight: 1.4 }] },
+  { featureType: "administrative.country", elementType: "geometry.stroke", stylers: [{ color: "#db504b" }, { weight: 1.4 }] },
   { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#674940" }] },
   { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
   { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#e3ead9" }] },
@@ -277,30 +282,416 @@ function computeZoomForBounds(bounds: SimpleBounds, containerWidthPx: number, co
  */
 type ColoredImageLocation = ImageLocation & { color: string | null };
 
-// Klassischer Marker unterstützt (anders als AdvancedMarker, siehe Kommentar
-// oben) nativ eine kurze Bounce-Animation über die animation-Option — kein
-// CSS/DOM nötig, funktioniert also auch mit dem Canvas/Raster-Marker. Läuft
-// nur kurz an (HIGHLIGHT_BOUNCE_MS), damit sie nicht endlos weiterhüpft,
-// während der vergrößerte/umrandete "fancy" Stil danach stehen bleibt, bis
-// ein anderes Bild markiert wird.
-const HIGHLIGHT_STROKE_COLOR = "#FF7F50";
-const HIGHLIGHT_BOUNCE_MS = 1400;
+// Rein statischer Stil für den markierten Punkt, nur mit nativen
+// Symbol-Icon-Eigenschaften (kein Bounce, kein Pulsieren/rAF-Loop — auf
+// Wunsch des Users verworfen): größerer Kreis (scale), eine etwas
+// gedunkelte Füllfarbe (siehe darkenHex) statt der vollen Standort-Farbe,
+// und ein markanter Rand in derselben (gedunkelten) Farbe wie die Füllung,
+// statt einer festen Akzentfarbe. Rand bleibt beim nativen strokeOpacity-
+// Default (voll deckend, 1) — die Füllung bekommt bewusst eine SPÜRBAR
+// niedrigere Opazität, damit sich Fläche und Rand klar voneinander
+// abheben, statt optisch zu verschmelzen.
+const HIGHLIGHT_STROKE_WEIGHT = 4;
+const HIGHLIGHT_FILL_OPACITY = 0.55;
+const HIGHLIGHT_FILL_DARKEN_AMOUNT = 0.25;
+
+/** Dunkelt eine #rrggbb-Farbe um den angegebenen Anteil (0–1) ab. */
+function darkenHex(hex: string, amount: number): string {
+  const factor = 1 - amount;
+  const channel = (offset: number) =>
+    Math.round(parseInt(hex.slice(offset, offset + 2), 16) * factor)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
+
+// Ein InfoWindow erscheint standardmäßig OBERHALB seines Ankers, horizontal
+// zentriert darauf. disableAutoPan (siehe unten) verhindert bewusst, dass
+// die Karte beim Öffnen eines Hover-Vorschaubilds springt — als Kehrseite
+// gleicht Google das dann aber auch nicht mehr automatisch aus, wenn der
+// Marker nah an EINEM der vier Kartenränder liegt: die Vorschau würde dort
+// abgeschnitten.
+//
+// Frühere Versuche haben das reaktiv gelöst: die tatsächlich gerenderte
+// (bereits offene) InfoWindow-Position per getBoundingClientRect messen und
+// per CSS transform nachträglich korrigieren. Das erwies sich als unnötig
+// fragil — u.a. weil Google ein frisch geöffnetes InfoWindow nicht synchron
+// positioniert und weil das ständige erneute Messen/Korrigieren immer
+// wieder neue Renders auslöste, die sich im ungünstigsten Fall gegenseitig
+// aufschaukelten. Ein zweiter, ebenfalls verworfener Ansatz maß VOR dem
+// Öffnen an einer unsichtbaren Kopie der Karte, um Nebenstandorte/Tags/
+// User-Tags einzurechnen — auch das erwies sich als zu fragil (das
+// verzögerte Öffnen selbst provozierte gelegentlich ein weiteres, echtes
+// Google-Hover-Ereignis, siehe hoveredMarkerIdRef-Kommentar unten).
+//
+// Die Karte zeigt deshalb bewusst NUR noch das Bild (keine Nebenstandorte/
+// Tags/User-Tags) — dadurch ist ihre Höhe von Anfang an FEST und exakt
+// bekannt (HOVER_CARD_IMAGE_HEIGHT_PX), es gibt nichts mehr zu messen oder
+// zu erraten. Der pixelOffset wird rein analytisch aus der Marker-Position
+// berechnet (siehe handleMarkerMouseOver) und dem InfoWindow direkt beim
+// `.open()`-Aufruf mitgegeben — einmalig, synchron, danach nie mehr
+// angefasst.
+const INFO_WINDOW_EDGE_MARGIN_PX = 8;
+
+interface EdgeRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+// Google lässt zwischen einem InfoWindow und seinem Anker-Marker selbst im
+// UNKORRIGIERTEN Zustand (pixelOffset [0,0]) einen kleinen, festen Abstand
+// frei — per Messung bestätigt exakt 16px zwischen Karten-Unterkante und
+// Marker, unabhängig von unserer eigenen (versteckten) Tip-Dekoration.
+// Wichtig für den Klapp-Fall in computeCardCorrection: ein reiner
+// Höhen-Spiegel (dy = rect.bottom - rect.top) verschiebt Ober- UND
+// Unterkante um denselben Betrag — die HÖHENDIFFERENZ (und damit dieser
+// dy-Wert) bleibt von einem konstanten Abstand wie diesem also unberührt.
+// Ohne den Korrekturterm unten landet die geklappte Karte dadurch knapp
+// UNTERHALB ihrer alten (oberhalb liegenden) Position, aber IMMER NOCH
+// OBERHALB des Markers statt sicher darunter (vom User gemeldet, per
+// Messung bestätigt: um exakt 2×16px zu kurz).
+const GOOGLE_INFO_WINDOW_NATIVE_GAP_PX = 16;
+
+/**
+ * [x, y]-pixelOffset, um einen HYPOTHETISCHEN Kartenrahmen (rect — wo die
+ * Karte OHNE Korrektur landen würde) innerhalb von containerRect zu halten.
+ *
+ * Links/rechts/unten: einfaches Klemmen (kleinstmögliche Verschiebung).
+ *
+ * Oben bewusst ANDERS: ein Klemmen (nur so weit nach unten schieben wie
+ * nötig) ließe die Karte weiterhin OBERHALB des Markers stehen — bei einem
+ * Marker nah am oberen Rand blieb sie dadurch optisch "am Cursor kleben"
+ * (vom User gemeldet). Stattdessen klappt die Karte bei einer
+ * Ober-Rand-Kollision komplett UNTER den Marker: rect.bottom ist der Punkt,
+ * an dem die Karte im unkorrigierten (oberhalb liegenden) Zustand
+ * natürlicherweise endet — exakt so weit unterhalb des Markers erneut
+ * platziert, ergibt denselben Abstand wie zuvor oberhalb, nur gespiegelt.
+ * dy = rect.bottom - rect.top (= angenommene Kartenhöhe), PLUS zweimal
+ * GOOGLE_INFO_WINDOW_NATIVE_GAP_PX (siehe dort), verschiebt die Karte um
+ * genau diesen Betrag nach unten, sodass ihr NEUER oberer Rand exakt so
+ * weit unterhalb des Markers liegt wie ihr ALTER unterer Rand oberhalb.
+ *
+ * Grenzfall: bei einer sehr niedrigen Kartenbox (weniger Höhe als die
+ * geklappte Karte insgesamt braucht) reicht der Platz unterhalb nach dem
+ * Klappen u.U. selbst nicht mehr aus — dann wird die geklappte Position
+ * zusätzlich nach OBEN geklemmt (kleinstmöglich, nie so weit, dass sie
+ * wieder über den oberen Rand hinausragt). In diesem seltenen Fall passt
+ * die Karte schlicht nicht vollständig unterhalb UND innerhalb der
+ * Kartenbox — der verbleibende Überstand ist dann unvermeidbar, das
+ * Klemmen verhindert aber wenigstens ein Herausragen aus der Kartenbox.
+ */
+function computeCardCorrection(rect: EdgeRect, containerRect: EdgeRect): [number, number] {
+  let dx = 0;
+  let dy = 0;
+  if (rect.left < containerRect.left + INFO_WINDOW_EDGE_MARGIN_PX) {
+    dx = containerRect.left + INFO_WINDOW_EDGE_MARGIN_PX - rect.left;
+  } else if (rect.right > containerRect.right - INFO_WINDOW_EDGE_MARGIN_PX) {
+    dx = containerRect.right - INFO_WINDOW_EDGE_MARGIN_PX - rect.right;
+  }
+  if (rect.top < containerRect.top + INFO_WINDOW_EDGE_MARGIN_PX) {
+    dy = rect.bottom - rect.top + 2 * GOOGLE_INFO_WINDOW_NATIVE_GAP_PX;
+    const flippedBottom = rect.bottom + dy;
+    if (flippedBottom > containerRect.bottom - INFO_WINDOW_EDGE_MARGIN_PX) {
+      dy -= flippedBottom - (containerRect.bottom - INFO_WINDOW_EDGE_MARGIN_PX);
+    }
+  } else if (rect.bottom > containerRect.bottom - INFO_WINDOW_EDGE_MARGIN_PX) {
+    dy = containerRect.bottom - INFO_WINDOW_EDGE_MARGIN_PX - rect.bottom;
+  }
+  return [dx, dy];
+}
+
+// Verzögert das Verwerfen des Hover-Ziels bei mouseout um diese Zeit, statt
+// sofort zu räumen (siehe handleMarkerMouseOut) — reine Kurzzeit-Pufferung
+// für den Fall, dass ein sofort folgendes mouseover (z.B. beim schnellen
+// Wechsel zwischen zwei benachbarten Markern) den Hover-Zustand nicht
+// unnötig auf null zurückwerfen soll. Die EIGENTLICHE Absicherung gegen
+// länger andauernde, echte Google-interne mouseout/mouseover-Paare (siehe
+// SPURIOUS_MOUSEOUT_RADIUS_PX) übernimmt eine Positionsprüfung, sobald
+// dieser Timer feuert — deshalb darf er kurz bleiben.
+const HOVER_LEAVE_DEBOUNCE_MS = 300;
+// Kurz nach einem Pan/Zoom-Gesture kann die Karte noch eine Weile per
+// Trägheit nachlaufen — dabei dispatcht Google wiederholt ECHTE, aber
+// FEHLGELEITETE mouseout/mouseover-Paare auf einem Marker, dessen
+// Bildschirmposition sich minimal unter dem UNBEWEGTEN Cursor verschiebt
+// (per Messung bestätigt: kann mehrere Sekunden andauern, mit wachsenden
+// Abständen zwischen den Paaren — ein fester Debounce allein kann das nicht
+// zuverlässig abfangen, ohne ein echtes Verlassen spürbar zu verzögern).
+// Wenn der HOVER_LEAVE_DEBOUNCE_MS-Timer feuert, wird deshalb zusätzlich
+// die TATSÄCHLICHE, zuletzt bekannte Cursor-Position (siehe
+// lastMousePositionRef) gegen die AKTUELLE Bildschirmposition des Markers
+// geprüft: liegt der Cursor noch innerhalb dieses Radius, war das
+// mouseout-Ereignis Google-intern fehlgeleitet (der Cursor hat sich nicht
+// wirklich wegbewegt) — das Hover-Ziel bleibt dann bestehen. Der Radius
+// orientiert sich am größten gerenderten Marker-Symbol (markierter Punkt,
+// scale 9, siehe coloredMarkers) plus Puffer für die beim Trägheits-
+// Nachlaufen tatsächlich beobachtete Restdistanz des Cursors.
+const SPURIOUS_MOUSEOUT_RADIUS_PX = 20;
+
+// Muss mit der Karten-Breite (w-[285px]) im JSX übereinstimmen.
+const HOVER_CARD_WIDTH_PX = 285;
+// aspect-[4/3] von HOVER_CARD_WIDTH_PX — exakt bekannt, unabhängig davon, ob
+// das Bild selbst schon geladen hat (die Höhe kommt allein aus dem
+// CSS-Seitenverhältnis des Containers, nicht aus den Bild-Bytes). Da die
+// Karte NUR das Bild zeigt (siehe Kommentar bei INFO_WINDOW_EDGE_MARGIN_PX),
+// ist das zugleich die GESAMTE, unveränderliche Höhe der Karte — sie wächst
+// nie nachträglich, es gibt also nichts zu messen oder zu erraten.
+const HOVER_CARD_IMAGE_HEIGHT_PX = (HOVER_CARD_WIDTH_PX * 3) / 4;
+
+/**
+ * Der Karteninhalt fürs Hover-Vorschaubild — bewusst NUR das Bild (+
+ * Hauptadresse), auf Wunsch des Users OHNE Nebenstandorte/Tags/User-Tags:
+ * das macht die Kartenhöhe FEST (siehe HOVER_CARD_IMAGE_HEIGHT_PX), es gibt
+ * dadurch nichts mehr nachzuladen, zu messen oder zu erraten — die Karte
+ * kann direkt beim ersten Öffnen exakt positioniert werden.
+ */
+function HoverCardBody({ location }: { location: ColoredImageLocation }) {
+  return (
+    <div className="pointer-events-none w-[285px] overflow-hidden rounded-xl bg-black outline-4 outline-black/50">
+      <div className="relative aspect-[4/3]">
+        {/* eslint-disable-next-line @next/next/no-img-element -- festes Vorschaubild, kein next/image-Mehrwert in einem Google-Maps-InfoWindow */}
+        <img src={thumbUrlFor(location.id)} alt="" className="size-full object-cover" />
+        {location.mainLocation && (
+          <Badge
+            className={cn("absolute bottom-1 left-1 max-w-[70%] gap-1 text-[11px] text-primary", BUTTON_GLASS_CLASS)}
+          >
+            <MapPin className="size-3 shrink-0" />
+            <span className="truncate">{location.mainLocation}</span>
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Ein unsichtbarer google.maps.OverlayView, einzig um an dessen
+ * getProjection() zu kommen — die Maps JS API bietet sonst keinen direkten
+ * Weg, eine geografische Koordinate in eine Pixel-Position relativ zur
+ * Kartenbox umzurechnen. Wird in handleMarkerMouseOver gebraucht, um die
+ * Rand-Korrektur ANALYTISCH (unabhängig von Googles eigener, zeitlich
+ * unvorhersehbarer InfoWindow-Positionierung) zu berechnen. onAdd/draw/
+ * onRemove müssen als (auch leere) Funktionen vorhanden sein, sonst wirft
+ * die Maps API beim Hinzufügen zur Karte einen Fehler.
+ */
+function useMapProjection(map: google.maps.Map | null): google.maps.OverlayView | null {
+  const [overlay, setOverlay] = useState<google.maps.OverlayView | null>(null);
+
+  useEffect(() => {
+    if (!map) return;
+    const projectionOverlay = new google.maps.OverlayView();
+    projectionOverlay.onAdd = () => {};
+    projectionOverlay.draw = () => {};
+    projectionOverlay.onRemove = () => {};
+    projectionOverlay.setMap(map);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Overlay muss erst zur Karte hinzugefügt werden, bevor er nutzbar ist
+    setOverlay(projectionOverlay);
+    return () => {
+      projectionOverlay.setMap(null);
+      setOverlay(null);
+    };
+  }, [map]);
+
+  return overlay;
+}
 
 function MapMarkersAndBounds({
   locations,
   bounds,
   containerWidth,
   containerHeight,
+  containerRef,
   highlightedId,
+  onSelectImage,
 }: {
   locations: ColoredImageLocation[];
   bounds: SimpleBounds | null;
   containerWidth: number;
   containerHeight: number;
+  /** Sichtbare Kartenbox (der Wrapper aus ImagesMapView) — Grundlage für die
+   * Rand-Kollisionsmessung des Hover-Vorschaubilds, siehe pixelOffset unten. */
+  containerRef: React.RefObject<HTMLDivElement | null>;
   highlightedId?: string | null;
+  onSelectImage: (id: string) => void;
 }) {
   const map = useMap();
-  const [bouncingId, setBouncingId] = useState<string | null>(null);
+  // Für die Rand-Kollisionsberechnung/Messung, siehe handleMarkerMouseOver
+  // weiter unten.
+  const projectionOverlay = useMapProjection(map);
+  // Marker-Instanz UND der analytisch berechnete pixelOffset werden direkt
+  // im onMouseOver-Handler aus markerRefs/containerRef aufgelöst und HIER
+  // (nicht als abgeleiteter Wert während des Renderns) in State gespeichert
+  // — ein Ref-Read während des Renderns ist laut React verboten
+  // (react-hooks/refs), da refs nicht für den Rendervorgang getrackt werden.
+  // Event-Handler sind dagegen ein sicherer Ort dafür.
+  const [hoveredMarker, setHoveredMarker] = useState<{
+    id: string;
+    marker: google.maps.Marker;
+    pixelOffset: [number, number] | undefined;
+  } | null>(null);
+  // Ref-Map statt useMarkerRef() pro Punkt — Hooks lassen sich nicht in der
+  // .map()-Schleife unten aufrufen. Dient als Anker fürs Hover-InfoWindow.
+  const markerRefs = useRef(new globalThis.Map<string, google.maps.Marker>());
+  // Siehe HOVER_LEAVE_DEBOUNCE_MS/handleMarkerMouseOut.
+  const hoverLeaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Zuletzt bekannte ECHTE Cursor-Position (Viewport-Koordinaten), aus einem
+  // window-weiten mousemove mitgeschrieben (siehe Effekt unten) — dient
+  // handleMarkerMouseOut als Tatsachen-Check gegen Google-intern
+  // fehlgeleitete mouseout-Ereignisse, siehe SPURIOUS_MOUSEOUT_RADIUS_PX.
+  const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
+  // Spiegel von hoveredMarker?.id, OHNE dass ein Lesezugriff darauf
+  // handleMarkerMouseOver instabil macht (siehe projectionOverlayRef-
+  // Kommentar unten für dasselbe Muster). Gebraucht für die Idempotenz-
+  // Prüfung in handleMarkerMouseOver: Google feuert auf einem Canvas-
+  // gerenderten Marker gelegentlich ein GENUINES (nicht von uns
+  // fehlgemessenes) erneutes mouseover, OBWOHL sich die Maus nicht bewegt
+  // hat (per Messung bestätigt, siehe HOVER_LEAVE_DEBOUNCE_MS-Kommentar) —
+  // ohne diese Prüfung würde JEDES dieser Ereignisse die bereits korrekt
+  // geöffnete Karte erneut schließen und neu aufbauen; dieses
+  // Schließen+Neuöffnen selbst störte dabei wiederum Googles eigene
+  // Hover-Erkennung (dieselbe Ursache wie beim früher behobenen
+  // Marker-Prop-Problem) und löste SOFORT das nächste solcher Ereignisse
+  // aus — eine sich selbst aufschaukelnde Schließen/Neuöffnen-Schleife
+  // (per Messung bestätigt).
+  const hoveredMarkerIdRef = useRef<string | null>(null);
+
+  // Immer die aktuellen Werte, aber OHNE dass ein Lesezugriff darauf einen
+  // Effekt/Callback neu erzeugt. Gebraucht, damit handleMarkerMouseOver
+  // (siehe unten) wirklich STABIL bleibt (leeres/fast leeres
+  // Dependency-Array), obwohl es auf diese sich häufig ändernden Werte
+  // zugreifen muss.
+  const projectionOverlayRef = useRef(projectionOverlay);
+  useEffect(() => {
+    projectionOverlayRef.current = projectionOverlay;
+  }, [projectionOverlay]);
+  const onSelectImageRef = useRef(onSelectImage);
+  useEffect(() => {
+    onSelectImageRef.current = onSelectImage;
+  }, [onSelectImage]);
+  useEffect(() => {
+    hoveredMarkerIdRef.current = hoveredMarker?.id ?? null;
+  }, [hoveredMarker]);
+  // Einziger Zweck: lastMousePositionRef aktuell halten (siehe
+  // SPURIOUS_MOUSEOUT_RADIUS_PX-Kommentar) — window-weit statt nur auf der
+  // Kartenbox, da ein mouseout-Ereignis selbst kein zuverlässiges
+  // clientX/clientY der jetzigen Cursor-Position liefert (das Ereignis
+  // gehört zum verlassenen Element, nicht zur aktuellen Mausposition).
+  useEffect(() => {
+    function handleWindowMouseMove(event: MouseEvent) {
+      lastMousePositionRef.current = { x: event.clientX, y: event.clientY };
+    }
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    return () => window.removeEventListener("mousemove", handleWindowMouseMove);
+  }, []);
+
+  // Stabile (per useCallback über die gesamte Marker-Hover-Sitzung hinweg
+  // gleichbleibende) Event-Handler statt der früheren, direkt in der
+  // .map()-Schleife inline definierten Arrow-Functions — DAS war die
+  // eigentliche Ursache des vom User gemeldeten "Karte bleibt über dem
+  // Cursor"-Problems auf der vollen, unbefilterten Karte: <Marker> (siehe
+  // @vis.gl/react-google-maps-Quelle) entfernt und hängt bei JEDER
+  // Prop-Änderung (inkl. einer bei jedem Render NEU erzeugten
+  // onMouseOver/onMouseOut-Funktion) alle internen Google-Maps-
+  // Event-Listener komplett neu ein (gme.clearInstanceListeners + erneutes
+  // addListener) — und genau das kann bei einem Canvas-gerenderten Marker
+  // Googles eigene interne Hover-Erkennung kurz durcheinanderbringen und ein
+  // ECHTES (nicht von uns fehlgemessenes) mouseout auslösen, obwohl sich die
+  // Maus gar nicht bewegt hat (per Messung bestätigt: markierte icon- UND
+  // position-Objekte allein reichten NICHT, erst die zusätzlich bei jedem
+  // Render neu erzeugten Event-Handler erklärten das beobachtete Muster
+  // vollständig). loc wird als Parameter übergeben statt eingefangen, damit
+  // diese Funktionen selbst über die gesamte Komponenten-Lebensdauer hinweg
+  // ein einziges Mal erzeugt werden (siehe coloredMarkers weiter unten, wo
+  // sie EINMALIG pro Marker gebunden werden, nicht bei jedem Render neu).
+  const handleMarkerClick = useCallback((id: string) => {
+    onSelectImageRef.current(id);
+  }, []);
+
+  const handleMarkerMouseOver = useCallback(
+    (loc: ColoredImageLocation) => {
+      // Ein eventuell noch anstehendes, verzögertes Verwerfen (siehe
+      // HOVER_LEAVE_DEBOUNCE_MS/handleMarkerMouseOut) ist jetzt hinfällig —
+      // die Maus ist ja gerade wieder (oder immer noch) über einem Marker.
+      if (hoverLeaveTimeoutRef.current) {
+        clearTimeout(hoverLeaveTimeoutRef.current);
+        hoverLeaveTimeoutRef.current = null;
+      }
+      // Idempotenz-Guard gegen ein GENUINES, wiederholtes mouseover-Ereignis
+      // auf demselben, unbewegten Marker (siehe hoveredMarkerIdRef-Kommentar
+      // oben) — dieser Marker ist bereits offen, ein erneuter Durchlauf
+      // würde das InfoWindow unnötig (und mit Schließen/Neuöffnen-
+      // Nebenwirkungen) neu aufbauen.
+      if (hoveredMarkerIdRef.current === loc.id) return;
+      const marker = markerRefs.current.get(loc.id);
+      // Ref-Zugriffe (containerRef.current) sind laut React nur außerhalb
+      // des Rendervorgangs sicher — deshalb hier im Event-Handler, nicht
+      // während des Renderns.
+      const projection = projectionOverlayRef.current?.getProjection();
+      if (!marker || !projection || !containerRef.current) return;
+      const point = projection.fromLatLngToContainerPixel(new google.maps.LatLng(loc.lat, loc.lng));
+      if (!point) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const markerPageX = containerRect.left + point.x;
+      const markerPageY = containerRect.top + point.y;
+      // Die Karte zeigt nur noch das Bild (siehe HoverCardBody) — ihre Höhe
+      // ist damit IMMER exakt HOVER_CARD_IMAGE_HEIGHT_PX, kein Raten, kein
+      // Messen, kein verzögertes Nachladen nötig.
+      const imageRect: EdgeRect = {
+        left: markerPageX - HOVER_CARD_WIDTH_PX / 2,
+        right: markerPageX + HOVER_CARD_WIDTH_PX / 2,
+        top: markerPageY - HOVER_CARD_IMAGE_HEIGHT_PX,
+        bottom: markerPageY,
+      };
+      setHoveredMarker({ id: loc.id, marker, pixelOffset: computeCardCorrection(imageRect, containerRect) });
+    },
+    [containerRef]
+  );
+
+  // Verzögert statt sofort geräumt (siehe HOVER_LEAVE_DEBOUNCE_MS) — ein
+  // mouseout, das kurz danach vom selben Marker durch ein erneutes
+  // mouseover widerrufen wird (siehe hoverLeaveTimeoutRef-Cancel in
+  // handleMarkerMouseOver), soll unseren Positionierungs-Ablauf NICHT
+  // zurücksetzen. Wenn der Timer feuert, wird zusätzlich (siehe
+  // SPURIOUS_MOUSEOUT_RADIUS_PX) die TATSÄCHLICHE Cursor-Position gegen die
+  // AKTUELLE Marker-Position geprüft — steht der Cursor dort immer noch,
+  // war das mouseout Google-intern fehlgeleitet und wird ignoriert.
+  const handleMarkerMouseOut = useCallback((id: string) => {
+    if (hoverLeaveTimeoutRef.current) clearTimeout(hoverLeaveTimeoutRef.current);
+    hoverLeaveTimeoutRef.current = setTimeout(() => {
+      hoverLeaveTimeoutRef.current = null;
+      const cursor = lastMousePositionRef.current;
+      const marker = markerRefs.current.get(id);
+      const markerPosition = marker?.getPosition();
+      const projection = projectionOverlayRef.current?.getProjection();
+      if (cursor && markerPosition && projection && containerRef.current) {
+        const point = projection.fromLatLngToContainerPixel(markerPosition);
+        if (point) {
+          const containerRect = containerRef.current.getBoundingClientRect();
+          const markerScreenX = containerRect.left + point.x;
+          const markerScreenY = containerRect.top + point.y;
+          const distance = Math.hypot(cursor.x - markerScreenX, cursor.y - markerScreenY);
+          if (distance < SPURIOUS_MOUSEOUT_RADIUS_PX) return;
+        }
+      }
+      setHoveredMarker((current) => (current?.id === id ? null : current));
+    }, HOVER_LEAVE_DEBOUNCE_MS);
+  }, [containerRef]);
+
+  const handleMarkerRef = useCallback((id: string, marker: google.maps.Marker | null) => {
+    if (marker) markerRefs.current.set(id, marker);
+    else markerRefs.current.delete(id);
+  }, []);
+
+  // Plain Array-/Map-Suche in Props/State (kein Ref-Read) — sicher während
+  // des Renderns, anders als ein direkter Zugriff auf markerRefs.
+  const hoveredLocation = hoveredMarker ? locations.find((loc) => loc.id === hoveredMarker.id) : undefined;
+
+  useEffect(() => {
+    return () => {
+      if (hoverLeaveTimeoutRef.current) clearTimeout(hoverLeaveTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!map) return;
@@ -321,36 +712,85 @@ function MapMarkersAndBounds({
     map.setZoom(computeZoomForBounds(bounds, containerWidth, containerHeight));
   }, [map, locations, bounds, containerWidth, containerHeight]);
 
-  useEffect(() => {
-    if (!highlightedId) return;
-    setBouncingId(highlightedId);
-    const timeout = setTimeout(() => setBouncingId(null), HIGHLIGHT_BOUNCE_MS);
-    return () => clearTimeout(timeout);
-  }, [highlightedId]);
+  // Memoisiert, damit weder icon NOCH position bei jedem Render für JEDEN
+  // Marker neu als Objekt-Literal entstehen. <Marker> ruft bei jeder
+  // Prop-Änderung marker.setOptions(...) bzw. marker.setPosition(...) auf
+  // (siehe @vis.gl/react-google-maps-Quelle) — bei gleichbleibenden Werten
+  // unnötig NEUE Objekte lösten dort wiederholt ein internes Neuzeichnen
+  // bzw. Neupositionieren des Markers aus, was (v.a. das wiederholte
+  // setPosition mit denselben Koordinaten) per Messung bestätigt ein ECHTES
+  // (von Google selbst dispatchtes, keine App-Fehlmessung) mouseout auf dem
+  // gerade gehoverten Marker auslösen konnte. Neu berechnet nur, wenn sich
+  // locations oder highlightedId tatsächlich ändern.
+  const coloredMarkers = useMemo(() => {
+    if (!map) return [];
+    return locations.map((loc) => {
+      const isHighlighted = loc.id === highlightedId;
+      const baseColor = loc.color ?? FALLBACK_MARKER_COLOR;
+      const markerColor = isHighlighted ? darkenHex(baseColor, HIGHLIGHT_FILL_DARKEN_AMOUNT) : baseColor;
+      return {
+        loc,
+        isHighlighted,
+        position: { lat: loc.lat, lng: loc.lng },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: isHighlighted ? 9 : 5,
+          fillColor: markerColor,
+          fillOpacity: isHighlighted ? HIGHLIGHT_FILL_OPACITY : 0.3,
+          strokeWeight: isHighlighted ? HIGHLIGHT_STROKE_WEIGHT : 0,
+          strokeColor: markerColor,
+        },
+        // Einmal pro Marker gebunden (nicht bei jedem Render neu) — siehe
+        // ausführliche Begründung bei handleMarkerMouseOver oben.
+        onClick: () => handleMarkerClick(loc.id),
+        onMouseOver: () => handleMarkerMouseOver(loc),
+        onMouseOut: () => handleMarkerMouseOut(loc.id),
+        onRef: (marker: google.maps.Marker | null) => handleMarkerRef(loc.id, marker),
+      };
+    });
+  }, [map, locations, highlightedId, handleMarkerClick, handleMarkerMouseOver, handleMarkerMouseOut, handleMarkerRef]);
 
   if (!map) return null;
 
   return (
     <>
-      {locations.map((loc) => {
-        const isHighlighted = loc.id === highlightedId;
+      {coloredMarkers.map(({ loc, isHighlighted, position, icon, onClick, onMouseOver, onMouseOut, onRef }) => {
         return (
           <Marker
             key={loc.id}
-            position={{ lat: loc.lat, lng: loc.lng }}
+            position={position}
             zIndex={isHighlighted ? 1000 : undefined}
-            animation={loc.id === bouncingId ? google.maps.Animation.BOUNCE : undefined}
-            icon={{
-              path: google.maps.SymbolPath.CIRCLE,
-              scale: isHighlighted ? 9 : 5,
-              fillColor: loc.color ?? FALLBACK_MARKER_COLOR,
-              fillOpacity: isHighlighted ? 1 : 0.3,
-              strokeWeight: isHighlighted ? 3 : 0,
-              strokeColor: HIGHLIGHT_STROKE_COLOR,
-            }}
+            icon={icon}
+            onClick={onClick}
+            onMouseOver={onMouseOver}
+            onMouseOut={onMouseOut}
+            ref={onRef}
           />
         );
       })}
+      {/* Kleines Vorschaubild beim Hovern — natives InfoWindow (Anker am
+          Marker, Google übernimmt Positionierung/Nachführen bei Pan/Zoom)
+          statt einer selbstgebauten, absolut positionierten Overlay-Div.
+          thumbUrlFor(id) ist eine reine Funktion nur aus der id (siehe
+          image-folder.ts) — kein Datennachladen nötig. Zeigt nur die
+          Hauptadresse (dieselbe Info, die auf der Kachel auch OHNE Hover
+          permanent sichtbar ist), bewusst OHNE Nebenstandorte/Tags/
+          User-Tags (siehe HoverCardBody) — dadurch ist die Kartenhöhe fix
+          bekannt und die Position beim Öffnen immer exakt, ohne Verzögerung
+          oder Nachladen. Favorit/Bearbeiten/Löschen bleiben bewusst außen
+          vor — das sind Aktionen, keine Information, und passen nicht zu
+          einer nicht-interaktiven Kartenvorschau (pointer-events-none,
+          siehe HoverCardBody). */}
+      {hoveredMarker && hoveredLocation && (
+        <InfoWindow
+          anchor={hoveredMarker.marker}
+          headerContent={null}
+          disableAutoPan
+          pixelOffset={hoveredMarker.pixelOffset}
+        >
+          <HoverCardBody location={hoveredLocation} />
+        </InfoWindow>
+      )}
     </>
   );
 }
@@ -361,15 +801,20 @@ export function ImagesMapView({
   regions,
   standort,
   highlightedId,
+  onSelectImage,
 }: {
   locations: ImageLocation[];
   units: AdministrativeUnit[];
   regions: Region[];
   standort: StandortRef | null;
   /** Marker, der beim Klick auf den Standort-Punkt einer Kachel/Preview
-   * hierher navigiert hat (siehe image-map-dot.tsx) — bekommt kurz eine
-   * Bounce-Animation und bleibt danach vergrößert/umrandet stehen. */
+   * hierher navigiert ist (siehe image-map-dot.tsx) ODER zuletzt direkt auf
+   * der Karte angeklickt wurde (siehe onSelectImage) — bekommt einen
+   * größeren, dunkleren, umrandeten Stil (siehe HIGHLIGHT_*-Konstanten). */
   highlightedId?: string | null;
+  /** Klick auf einen Kartenpunkt — öffnet in images-page-client.tsx das
+   * Vollbild-Preview desselben Bilds. */
+  onSelectImage: (id: string) => void;
 }) {
   const isDark = useIsDarkTheme();
   const [wrapperRef, containerWidth] = useContainerWidth();
@@ -407,8 +852,32 @@ export function ImagesMapView({
       {/* Dimmt ausschließlich den verbleibenden Vollbild-Button — Googles
           eigene Steuerelemente lassen sich nicht über MapOptions einfärben,
           nur die feste .gm-fullscreen-control-Klasse ist dafür stabil genug
-          (langjährig unverändert), um gezielt per CSS angefasst zu werden. */}
-      <style>{`[data-testid="images-map-view"] .gm-fullscreen-control { filter: brightness(0.85); }`}</style>
+          (langjährig unverändert), um gezielt per CSS angefasst zu werden.
+          Dieselbe Technik für die Hover-InfoWindow-Klassen darunter: Google
+          bringt fürs InfoWindow eigenes weißes Bubble-Chrome (Hintergrund,
+          Schließen-X, Pfeil-Spitze) mit, das über MapOptions/InfoWindowProps
+          NICHT abschaltbar ist — nur über diese festen .gm-*-Klassen.
+          border-radius/overflow auf .gm-style-iw-c/-d werden zusätzlich
+          zurückgesetzt (Google bringt dort einen EIGENEN 8px-Radius +
+          overflow: hidden/scroll mit): sonst entstand ein zweiter,
+          abweichender Rundungs-Radius um unseren eigenen rounded-xl-Inhalt
+          herum (sichtbar als Eck-Artefakte), und dieser äußere
+          overflow:hidden/scroll schnitt unseren outline-4 (der außerhalb
+          der eigenen Box gezeichnet wird) teilweise weg. */}
+      <style>{`
+        [data-testid="images-map-view"] .gm-fullscreen-control { filter: brightness(0.85); }
+        [data-testid="images-map-view"] .gm-style-iw-c,
+        [data-testid="images-map-view"] .gm-style-iw-d {
+          padding: 0 !important;
+          background: transparent !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          overflow: visible !important;
+        }
+        [data-testid="images-map-view"] .gm-style-iw-tc { display: none !important; }
+        [data-testid="images-map-view"] .gm-style-iw-chr,
+        [data-testid="images-map-view"] .gm-ui-hover-effect { display: none !important; }
+      `}</style>
       <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}>
         {/* Bewusst OHNE colorScheme-Prop: die steuert nur Googles eigene
             UI-Controls (Zoom/Map-Satellite-Pille), nicht die Kartenfarben
@@ -430,7 +899,9 @@ export function ImagesMapView({
             bounds={bounds}
             containerWidth={containerWidth}
             containerHeight={height}
+            containerRef={wrapperRef}
             highlightedId={highlightedId}
+            onSelectImage={onSelectImage}
           />
         </Map>
       </APIProvider>
