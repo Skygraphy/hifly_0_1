@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -410,25 +409,52 @@ export function FavoriteButton({
  * CSS-Pixel-Grenze noch spürbar weich/hochskaliert (vom User bestätigt).
  * Erst die Division durch devicePixelRatio hier liefert die tatsächliche
  * "nie mehr als 1 Quellpixel pro Geräte-Pixel"-Grenze.
+ *
+ * Nimmt src als Parameter statt (wie in einer früheren Version) die
+ * Neuberechnung rein an einen ref-Callback zu hängen: PreviewImage mountet
+ * ihr <img>-Element beim Blättern bewusst NICHT neu (für den Crossfade,
+ * siehe dortiger Kommentar) — ein ref-Callback feuert aber nur beim
+ * tatsächlichen Mounten/Unmounten des DOM-Knotens, nicht wenn nur dessen
+ * src-Attribut wechselt. Die Deckelung blieb dadurch beim Blättern auf den
+ * Maßen des ALLERERSTEN geladenen Bilds eingefroren — ein neues, eigentlich
+ * größeres Bild wurde fälschlich auf die kleinere Größe des ursprünglichen
+ * Bilds gedeckelt (vom User gemeldet: Preview "nimmt nicht die Höhe an, die
+ * es sollte" nach Weiter/Zurück).
+ *
+ * Der src-Wechsel wird SYNCHRON WÄHREND DES RENDERNS erkannt (state bündelt
+ * src + maxSize, verglichen wie current/row in PreviewImage oben) statt in
+ * einem Effekt zurückgesetzt — ein unconditional setState() am Anfang eines
+ * Effekt-Bodys triggert unnötige Extra-Renders (react-hooks/set-state-in-effect)
+ * und würde für einen Frame die falsche (alte) Deckelung zeigen.
  */
-function useNoUpscaleStyle(): [(img: HTMLImageElement | null) => void, CSSProperties | undefined] {
-  const [maxSize, setMaxSize] = useState<{ width: number; height: number } | null>(null);
+function useNoUpscaleStyle(src: string): [React.RefObject<HTMLImageElement | null>, CSSProperties | undefined] {
+  const [state, setState] = useState<{ src: string; maxSize: { width: number; height: number } | null }>({
+    src,
+    maxSize: null,
+  });
+  if (state.src !== src) setState({ src, maxSize: null });
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
-  const ref = useCallback((img: HTMLImageElement | null) => {
+  useEffect(() => {
+    const img = imgRef.current;
     if (!img) return;
     const apply = () => {
       const dpr = window.devicePixelRatio || 1;
-      setMaxSize({ width: img.naturalWidth / dpr, height: img.naturalHeight / dpr });
+      setState({ src, maxSize: { width: img.naturalWidth / dpr, height: img.naturalHeight / dpr } });
     };
     // Aus dem Browser-Cache bedientes Bild ist schon "complete", bevor React
     // den onLoad-Handler anhängt — derselbe Zwei-Wege-Ansatz wie checkOrientation
     // in image-thumbnail-card.tsx.
     if (img.complete && img.naturalWidth > 0) apply();
     else img.addEventListener("load", apply, { once: true });
-  }, []);
+    return () => img.removeEventListener("load", apply);
+  }, [src]);
 
-  if (!maxSize) return [ref, undefined];
-  return [ref, { maxWidth: `min(85vw, ${maxSize.width}px)`, maxHeight: `min(85vh, ${maxSize.height}px)` }];
+  if (!state.maxSize) return [imgRef, undefined];
+  return [
+    imgRef,
+    { maxWidth: `min(85vw, ${state.maxSize.width}px)`, maxHeight: `min(85vh, ${state.maxSize.height}px)` },
+  ];
 }
 
 function PreviewImage({ row }: { row: ImageSearchRow }) {
@@ -454,8 +480,8 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
     return () => clearTimeout(timeout);
   }, [previous]);
 
-  const [previousRef, previousStyle] = useNoUpscaleStyle();
-  const [currentRef, currentStyle] = useNoUpscaleStyle();
+  const [previousRef, previousStyle] = useNoUpscaleStyle(previous?.previewUrl ?? "");
+  const [currentRef, currentStyle] = useNoUpscaleStyle(current.previewUrl);
 
   return (
     <div className="relative flex max-h-[85vh] max-w-[85vw] items-center justify-center">
