@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
  * Farbiger Punkt unten rechts auf Kachel (image-thumbnail-card.tsx) und
  * Vollbild-Popup (image-preview-popup.tsx) — zeigt dieselbe Farbe wie der
  * Karten-Marker des Bildes (siehe resolveImageColor in image-map-colors.ts),
- * aber voll deckend (opacity 1) statt der 30%-Deckkraft der Marker selbst,
+ * aber voll deckend (opacity 1) statt der niedrigeren Deckkraft der Marker
+ * selbst (siehe MARKER_FILL_OPACITY in images-map-view.tsx — dort bewusst
+ * niedrig, damit sich dicht liegende Bilder zu helleren Flecken addieren),
  * damit er auf der Kachel klar erkennbar bleibt. Klickfläche (size-5) bewusst
  * größer als der sichtbare Kreis (size-2.5) — auf einer kleinen Kachel ist
  * der exakte Punkt selbst ein zu kleines Ziel. Klick navigiert zur

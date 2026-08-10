@@ -636,13 +636,16 @@ export function ImagePreviewPopup({
           data-slot="dialog-content"
           initialFocus={closeButtonRef}
           className="fixed inset-0 z-50 flex items-center justify-center p-8 outline-none data-open:animate-in data-open:fade-in-0"
-          // Klick auf den Popup-Rahmen selbst (nicht auf ein Kind-Element,
-          // also außerhalb des Bildes) schließt das Popup — dieselbe
-          // "außerhalb klicken schließt"-Erwartung wie bei einer normalen
-          // Lightbox, die der volle Viewport-Wrapper sonst verdecken würde.
-          onClick={(event) => {
-            if (event.target === event.currentTarget) onOpenChange(false);
-          }}
+          // Jeder Klick irgendwo im Fenster schließt das Popup — auch auf
+          // dem Bild selbst oder auf nicht-interaktiven Elementen (Badges,
+          // Panel-Hintergrund) —, außer ein Button/Popover-Trigger/Link/
+          // Eingabefeld auf dem Weg nach oben ruft selbst
+          // event.stopPropagation() auf (macht in dieser Datei praktisch
+          // jedes interaktive Element bereits). Vorher nur bei einem Klick
+          // exakt auf den Rahmen selbst (event.target === currentTarget,
+          // also nur außerhalb der Bild-Box) — auf Wunsch des Users jetzt
+          // bewusst weiter gefasst.
+          onClick={() => onOpenChange(false)}
         >
           {row && (
             <div className="flex items-center gap-4">
@@ -763,7 +766,10 @@ export function ImagePreviewPopup({
                         className={cn(BUTTON_GLASS_CLASS, "text-primary")}
                         aria-label="Bearbeiten"
                         data-testid={`image-preview-edit-${row.id}`}
-                        onClick={() => onEdit(row)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEdit(row);
+                        }}
                       >
                         <Pencil className="size-4" />
                       </Button>
@@ -776,7 +782,10 @@ export function ImagePreviewPopup({
                         className={cn(BUTTON_GLASS_CLASS, "text-destructive")}
                         aria-label="Löschen"
                         data-testid={`image-preview-delete-${row.id}`}
-                        onClick={() => onDelete(row)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDelete(row);
+                        }}
                       >
                         <Trash2 className="size-4" />
                       </Button>

@@ -132,18 +132,26 @@ export function ImagesPageClient({
   // durch die Grid-Reihenfolge bewegt hat — bei einem über die Karte
   // geöffneten Bild ist die rows-Position bestenfalls zufällig (ein
   // Kartenbild, das noch nicht in rows steht, hat dort sogar gar keine
-  // Position, siehe externalPreviewRow), "Weiter" würde dann zu einem
+  // Position, siehe externalRowsById), "Weiter" würde dann zu einem
   // thematisch beliebigen Bild springen. Wird bei jedem Preview-Öffnen neu
   // gesetzt (Grid-Klick → false, Kartenklick → true).
   const [previewOpenedFromMap, setPreviewOpenedFromMap] = useState(false);
-  // Per Kartenklick per getImageById nachgeladenes Bild, das (noch) nicht in
-  // rows steht (siehe handleSelectMapImage) — bewusst NICHT in rows
+  // Per Kartenklick per getImageById nachgeladene Bilder, die (noch) nicht
+  // in rows stehen (siehe handleSelectMapImage) — bewusst NICHT in rows
   // eingefügt, das hätte in der eigentlich sortierten/paginierten Liste eine
   // Lücke bzw. einen Sprung erzeugt (auf Wunsch des Users). Preview,
-  // Bearbeiten- und Tag/Favorit-Aktionen fallen für diese eine Zeile auf
-  // diesen State zurück (siehe findRowAnywhere/updateRow), damit sie trotzdem
-  // funktionieren, obwohl das Bild in der Kachel-Ansicht nicht sichtbar ist.
-  const [externalPreviewRow, setExternalPreviewRow] = useState<ImageSearchRow | null>(null);
+  // Bearbeiten- und Tag/Favorit-Aktionen fallen für diese Zeilen auf diesen
+  // State zurück (siehe findRowAnywhere/updateRowAnywhere), damit sie
+  // trotzdem funktionieren, obwohl das Bild in der Kachel-Ansicht nicht
+  // sichtbar ist. AKKUMULIEREND (nicht nur das zuletzt geklickte Bild) —
+  // ein früherer Einzelplatz-Stand wurde beim nächsten Kartenklick auf ein
+  // ANDERES, ebenfalls nicht in rows stehendes Bild überschrieben, wodurch
+  // eine zuvor über das große Preview vorgenommene Bearbeitung verloren
+  // ging (vom User gemeldet: nach Zwischenklick auf einen anderen Kreis
+  // zeigte der ursprüngliche wieder die alten Daten). Bleibt wie der
+  // Karten-eigene detailsById-Cache (images-map-view.tsx) für die gesamte
+  // Sitzung bestehen.
+  const [externalRowsById, setExternalRowsById] = useState<ReadonlyMap<string, ImageSearchRow>>(new globalThis.Map());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   // Zuletzt einzeln (de-)markiertes Bild — Anker für Shift-Klick-Bereiche.
@@ -355,49 +363,63 @@ export function ImagesPageClient({
   // nachgeladen. Bewusst NICHT in rows eingefügt (auf Wunsch des Users) —
   // das hätte in der sortierten/paginierten Liste eine Lücke bzw. beim
   // Nachladen einen Sortier-Sprung erzeugt. Landet stattdessen nur in
-  // externalPreviewRow, rein für die Preview-Anzeige; die Kachel-Ansicht
-  // bleibt unverändert, wie sie vor dem Kartenklick war.
+  // externalRowsById, rein für die Preview-Anzeige; die Kachel-Ansicht
+  // bleibt unverändert, wie sie vor dem Kartenklick war. Bereits einmal
+  // geladene Bilder werden nicht erneut gefetcht (Map-Treffer reicht) —
+  // lokale Bearbeitungen halten den Eintrag ohnehin selbst aktuell (siehe
+  // updateRowAnywhere/handleSaved/handleToggleFavorite).
   async function handleSelectMapImage(imageId: string) {
     setHighlightedImageId(imageId);
     setPreviewOpenedFromMap(true);
     const existing = rows.find((row) => row.id === imageId);
     if (existing) {
-      setExternalPreviewRow(null);
       setPreviewId(existing.id);
+      return;
+    }
+    if (externalRowsById.has(imageId)) {
+      setPreviewId(imageId);
       return;
     }
     const fetched = await getImageById(imageId);
     if (!fetched) return;
-    setExternalPreviewRow(fetched);
+    setExternalRowsById((prev) => new globalThis.Map(prev).set(imageId, fetched));
     setPreviewId(fetched.id);
   }
 
   // Liefert die aktuelle Zeile für eine id, egal ob sie in rows steht oder
-  // nur als externalPreviewRow existiert (siehe handleSelectMapImage) — von
+  // nur in externalRowsById existiert (siehe handleSelectMapImage) — von
   // den Tag-/Favorit-/Bearbeiten-Handlern genutzt, damit diese Aktionen auch
   // für ein per Kartenklick geöffnetes, noch nicht geladenes Bild
   // funktionieren.
   function findRowAnywhere(id: string): ImageSearchRow | undefined {
-    return rows.find((row) => row.id === id) ?? (externalPreviewRow?.id === id ? externalPreviewRow : undefined);
+    return rows.find((row) => row.id === id) ?? externalRowsById.get(id);
   }
 
   // Wendet updater auf die Zeile mit id an, egal ob sie gerade in rows oder
-  // nur in externalPreviewRow steht (siehe findRowAnywhere).
+  // nur in externalRowsById steht (siehe findRowAnywhere).
   function updateRowAnywhere(id: string, updater: (row: ImageSearchRow) => ImageSearchRow) {
     setRows((prev) => prev.map((row) => (row.id === id ? updater(row) : row)));
-    setExternalPreviewRow((prev) => (prev?.id === id ? updater(prev) : prev));
+    setExternalRowsById((prev) => {
+      const existing = prev.get(id);
+      return existing ? new globalThis.Map(prev).set(id, updater(existing)) : prev;
+    });
   }
 
   function handleDeleted(id: string) {
     setRows((prev) => prev.filter((row) => row.id !== id));
-    setExternalPreviewRow((prev) => (prev?.id === id ? null : prev));
+    setExternalRowsById((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new globalThis.Map(prev);
+      next.delete(id);
+      return next;
+    });
     setTotal((prev) => prev - 1);
     setDeleteTarget(null);
   }
 
   function handleSaved(updated: ImageSearchRow) {
     setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-    setExternalPreviewRow((prev) => (prev?.id === updated.id ? updated : prev));
+    setExternalRowsById((prev) => (prev.has(updated.id) ? new globalThis.Map(prev).set(updated.id, updated) : prev));
     setEditId(null);
   }
 
@@ -452,7 +474,7 @@ export function ImagesPageClient({
   // (Berechtigung/Owner wird server-seitig ohnehin erneut geprüft, siehe
   // addUserTag in actions.ts — hier nur UI-Feedback). updateRowAnywhere statt
   // direktem setRows, damit das auch für ein per Kartenklick geöffnetes,
-  // noch nicht geladenes Bild funktioniert (siehe externalPreviewRow).
+  // noch nicht geladenes Bild funktioniert (siehe externalRowsById).
   async function handleAddUserTag(imageId: string, tag: string) {
     if (!user?.id) return;
     const optimisticEntry: UserTagEntry = { tag, addedBy: user.id };
@@ -498,16 +520,16 @@ export function ImagesPageClient({
   // explizit für die Abwahl gefordert, hier aus Konsistenzgründen auch
   // symmetrisch für den umgekehrten Fall (Filter "Keine Favoriten" +
   // gerade favorisiert) umgesetzt. Die Filter-Entfernung gilt nur für rows
-  // (Teil der gefilterten/gezählten Ergebnismenge) — ein externalPreviewRow
-  // ist per direktem getImageById geladen, unabhängig vom aktiven Filter,
-  // und wird deshalb nur aktualisiert, nie herausgefiltert. stillMatchesFilter
-  // wird VOR dem setRows-Aufruf aus dem aktuellen (geschlossenen)
-  // rows/favoritesOnly berechnet, nicht im Updater selbst gelesen — React
-  // führt den Updater asynchron zum Rest dieser Funktion aus.
+  // (Teil der gefilterten/gezählten Ergebnismenge) — ein Eintrag in
+  // externalRowsById ist per direktem getImageById geladen, unabhängig vom
+  // aktiven Filter, und wird deshalb nur aktualisiert, nie herausgefiltert.
+  // stillMatchesFilter wird VOR dem setRows-Aufruf aus dem aktuellen
+  // (geschlossenen) rows/favoritesOnly berechnet, nicht im Updater selbst
+  // gelesen — React führt den Updater asynchron zum Rest dieser Funktion aus.
   async function handleToggleFavorite(imageId: string) {
     if (!user?.id) return;
     const rowInRows = rows.find((row) => row.id === imageId);
-    const rowInExternal = externalPreviewRow?.id === imageId ? externalPreviewRow : undefined;
+    const rowInExternal = externalRowsById.get(imageId);
     const currentRow = rowInRows ?? rowInExternal;
     if (!currentRow) return;
     const nextIsFavorite = !currentRow.isFavorite;
@@ -515,7 +537,7 @@ export function ImagesPageClient({
       favoritesOnly === "all" || (favoritesOnly === "yes" ? nextIsFavorite : !nextIsFavorite);
 
     const previousRows = rows;
-    const previousExternalPreviewRow = externalPreviewRow;
+    const previousExternalRowsById = externalRowsById;
     const previousTotal = total;
     if (rowInRows) {
       setRows((prev) =>
@@ -526,13 +548,13 @@ export function ImagesPageClient({
       if (!stillMatchesFilter) setTotal((prev) => prev - 1);
     }
     if (rowInExternal) {
-      setExternalPreviewRow((prev) => (prev ? { ...prev, isFavorite: nextIsFavorite } : prev));
+      setExternalRowsById((prev) => new globalThis.Map(prev).set(imageId, { ...rowInExternal, isFavorite: nextIsFavorite }));
     }
 
     const result = await toggleFavorite(imageId);
     if (!result.success) {
       setRows(previousRows);
-      setExternalPreviewRow(previousExternalPreviewRow);
+      setExternalRowsById(previousExternalRowsById);
       setTotal(previousTotal);
       alert(result.error ?? "Favorit konnte nicht geändert werden.");
     }
@@ -540,21 +562,47 @@ export function ImagesPageClient({
 
   const standortName = resolveStandortName(standort, units, regions);
 
-  // Dieselbe Farbe wie der zugehörige Karten-Marker (siehe
-  // resolveTargetLevel/resolveImageColor in image-map-colors.ts) für den
-  // Standort-Punkt auf jeder Kachel/im Preview — einmal pro rows-Änderung
-  // berechnet statt pro Kachel neu, da targetLevel/unitsById/regionsById für
-  // alle Zeilen gleich sind.
-  const dotColorById = useMemo(() => {
-    const targetLevel = resolveTargetLevel(standort, units, regions);
+  // Alle aktuell bekannten Zeilen, egal ob paginiert geladen (rows) oder nur
+  // per Kartenklick nachgeladen (externalRowsById, siehe
+  // handleSelectMapImage) — EINE gemeinsame Quelle für dotColorById unten
+  // UND für die Kartenansicht (images-map-view.tsx, siehe knownRowsById-Prop
+  // weiter unten): dort wird die kleine Hover-Vorschau bei Bedarf per
+  // eigenem, dauerhaftem Cache nachgeladen (getImageById) — bearbeitet man
+  // ein Bild über das große Preview (handleSaved/updateRowAnywhere/
+  // handleToggleFavorite oben), weiß dieser Karten-Cache davon nichts und
+  // zeigt sonst veraltete Werte (vom User gemeldet). Diese Lookup-Map macht
+  // der Karte die hier ohnehin schon aktuellen Zeilen bekannt, damit sie
+  // IMMER Vorrang vor ihrem eigenen (potenziell veralteten) Cache bekommen —
+  // keine manuelle Invalidierung nötig. rows zuletzt gesetzt, damit die
+  // paginierte Liste bei einer id-Überschneidung mit externalRowsById immer
+  // gewinnt (die eigentliche Quelle der Wahrheit für geladene Bilder).
+  const rowsById = useMemo(() => {
     // globalThis.Map statt Map: "Map" ist in dieser Datei bereits das
     // importierte lucide-react-Icon für den Karte/Grid-Umschalt-Button,
     // würde den globalen Map-Konstruktor sonst verdecken (dieselbe Falle wie
     // in images-map-view.tsx, dort mit dem @vis.gl/react-google-maps-Import).
+    const map = new globalThis.Map<string, ImageSearchRow>();
+    for (const row of externalRowsById.values()) map.set(row.id, row);
+    for (const row of rows) map.set(row.id, row);
+    return map;
+  }, [rows, externalRowsById]);
+
+  // Dieselbe Farbe wie der zugehörige Karten-Marker (siehe
+  // resolveTargetLevel/resolveImageColor in image-map-colors.ts) für den
+  // Standort-Punkt auf jeder Kachel/im Preview — einmal pro rowsById-Änderung
+  // berechnet statt pro Kachel neu, da targetLevel/unitsById/regionsById für
+  // alle Zeilen gleich sind. Iteriert über rowsById (siehe oben) statt einer
+  // eigenen rows/externalRowsById-Kombination — sonst fehlt einem per
+  // Kartenklick nachgeladenen, noch nicht in rows stehenden Bild sein
+  // Eintrag hier, und das große Preview zeigt für dessen Standort-Punkt
+  // fälschlich die Fallback-Farbe statt der tatsächlichen (die der
+  // Karten-Marker selbst ja bereits korrekt anzeigt).
+  const dotColorById = useMemo(() => {
+    const targetLevel = resolveTargetLevel(standort, units, regions);
     const unitsById = new globalThis.Map(units.map((unit) => [unit.id, unit]));
     const regionsById = new globalThis.Map(regions.map((region) => [region.id, region]));
     const colorById = new globalThis.Map<string, string>();
-    for (const row of rows) {
+    for (const row of rowsById.values()) {
       const color = resolveImageColor(
         { administrativeUnitId: row.administrativeUnitId, regionId: row.regionId },
         targetLevel,
@@ -564,13 +612,13 @@ export function ImagesPageClient({
       colorById.set(row.id, color ?? FALLBACK_MARKER_COLOR);
     }
     return colorById;
-  }, [rows, standort, units, regions]);
+  }, [rowsById, standort, units, regions]);
 
   const editRow = editId ? (findRowAnywhere(editId) ?? null) : null;
 
   const previewIndex = rows.findIndex((row) => row.id === previewId);
   const previewRow =
-    previewIndex >= 0 ? rows[previewIndex] : externalPreviewRow?.id === previewId ? externalPreviewRow : null;
+    previewIndex >= 0 ? rows[previewIndex] : previewId ? (externalRowsById.get(previewId) ?? null) : null;
   const previewCanEdit = previewRow
     ? canEditImage({ actingUserId: user?.id, actingRole: user?.role, imageUploadedBy: previewRow.uploadedBy })
     : false;
@@ -790,6 +838,8 @@ export function ImagesPageClient({
           standort={standort}
           highlightedId={highlightedImageId}
           onSelectImage={handleSelectMapImage}
+          isPreviewOpen={previewId !== null}
+          knownRowsById={rowsById}
         />
       )}
 

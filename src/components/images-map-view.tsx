@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APIProvider, InfoWindow, Map, Marker, useMap } from "@vis.gl/react-google-maps";
-import { MapPin } from "lucide-react";
+import { Heart, Loader2, MapPin, Signpost, Tag as TagIcon, Tags as UserTagsIcon, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import type { ImageLocation } from "@/app/images/actions";
+import { getImageById, type ImageLocation, type ImageSearchRow } from "@/app/images/actions";
 import type { AdministrativeUnit } from "@/lib/administrative-units";
 import type { Region } from "@/lib/regions";
 import type { StandortRef } from "@/lib/standort";
-import { BUTTON_GLASS_CLASS } from "@/lib/badge-glass-style";
+import { BUTTON_GLASS_CLASS, TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { resolveTargetLevel, resolveImageColor, FALLBACK_MARKER_COLOR } from "@/lib/image-map-colors";
 import { thumbUrlFor } from "@/lib/image-folder";
+import { useFittingCount } from "@/lib/use-fitting-count";
 import { cn } from "@/lib/utils";
 
 // Zentriert auf Österreich — Fallback für den leeren Zustand (keine
@@ -294,6 +295,25 @@ type ColoredImageLocation = ImageLocation & { color: string | null };
 const HIGHLIGHT_STROKE_WEIGHT = 4;
 const HIGHLIGHT_FILL_OPACITY = 0.55;
 const HIGHLIGHT_FILL_DARKEN_AMOUNT = 0.25;
+// Bewusst niedrig (statt voll deckend wie der Punkt auf der Kachel, siehe
+// image-map-dot.tsx): bei dicht liegenden Bildern addiert sich die
+// Transparenz überlappender Marker zu helleren Flecken und zeigt so die
+// Bild-Dichte einer Gegend an — ein voll deckender Marker würde diesen
+// Effekt verlieren (vom User bestätigt, siehe Kommentar in image-map-dot.tsx).
+const MARKER_FILL_OPACITY = 0.3;
+// Google Maps koppelt den klickbaren Bereich eines Markers an die
+// Bounding-Box seines Icons, nicht an die tatsächlich sichtbaren Pixel —
+// ein kleiner, dünner Kreis ist dadurch schwer genau zu treffen. Ein extra
+// Marker pro Punkt nur für die größere Trefferfläche wäre die naheliegende
+// Lösung, verdoppelt aber die Marker-Zahl. Günstiger (per Messung
+// bestätigt): der SICHTBARE Marker bekommt selbst einen unsichtbaren
+// (strokeOpacity 0) Rand (siehe coloredMarkers/icon.strokeWeight unten) —
+// Google zählt dessen Breite mit zur Bounding-Box, obwohl er nicht gemalt
+// wird. strokeWeight = 2× die gewünschte zusätzliche Trefferfläche
+// (Rand wächst symmetrisch nach außen UND innen vom Pfadrand, nur die
+// äußere Hälfte vergrößert die Bounding-Box). Die sichtbare Kreisgröße
+// (icon.scale) ändert sich dadurch nicht.
+const MARKER_HIT_PADDING_PX = 9;
 
 /** Dunkelt eine #rrggbb-Farbe um den angegebenen Anteil (0–1) ab. */
 function darkenHex(hex: string, amount: number): string {
@@ -342,17 +362,26 @@ interface EdgeRect {
 
 // Google lässt zwischen einem InfoWindow und seinem Anker-Marker selbst im
 // UNKORRIGIERTEN Zustand (pixelOffset [0,0]) einen kleinen, festen Abstand
-// frei — per Messung bestätigt exakt 16px zwischen Karten-Unterkante und
-// Marker, unabhängig von unserer eigenen (versteckten) Tip-Dekoration.
+// frei. Dieser native Abstand ist KEINE reine Konstante, sondern wächst mit
+// dem effektiven Radius des Marker-Icons (Basis-Clearance ~11px + Icon-
+// Radius) — per isoliertem Messaufbau bestätigt: 5px Radius (kein
+// unsichtbarer Rand) -> 16px, 14px Radius (MARKER_HIT_PADDING_PX-Technik,
+// scale 5 + strokeWeight/2 = 5+9) -> 25px. Der ursprüngliche Wert 16 wurde
+// VOR Einführung von MARKER_HIT_PADDING_PX gemessen; seit der unsichtbare
+// Rand zur Trefferflächen-Vergrößerung mit in Googles eigene Bounding-Box-
+// Berechnung eingeht (siehe MARKER_HIT_PADDING_PX-Kommentar), ist der
+// tatsächliche native Abstand für die (unmarkierten) Hover-Marker auf 25px
+// gewachsen — 16 war dadurch zu klein geworden, die geklappte Karte landete
+// entsprechend zu nah am Marker (vom User gemeldet).
 // Wichtig für den Klapp-Fall in computeCardCorrection: ein reiner
 // Höhen-Spiegel (dy = rect.bottom - rect.top) verschiebt Ober- UND
 // Unterkante um denselben Betrag — die HÖHENDIFFERENZ (und damit dieser
 // dy-Wert) bleibt von einem konstanten Abstand wie diesem also unberührt.
 // Ohne den Korrekturterm unten landet die geklappte Karte dadurch knapp
 // UNTERHALB ihrer alten (oberhalb liegenden) Position, aber IMMER NOCH
-// OBERHALB des Markers statt sicher darunter (vom User gemeldet, per
-// Messung bestätigt: um exakt 2×16px zu kurz).
-const GOOGLE_INFO_WINDOW_NATIVE_GAP_PX = 16;
+// OBERHALB des Markers statt sicher darunter — um exakt 2× diesen Wert zu
+// kurz.
+const GOOGLE_INFO_WINDOW_NATIVE_GAP_PX = 25;
 
 /**
  * [x, y]-pixelOffset, um einen HYPOTHETISCHEN Kartenrahmen (rect — wo die
@@ -433,33 +462,234 @@ const SPURIOUS_MOUSEOUT_RADIUS_PX = 20;
 const HOVER_CARD_WIDTH_PX = 285;
 // aspect-[4/3] von HOVER_CARD_WIDTH_PX — exakt bekannt, unabhängig davon, ob
 // das Bild selbst schon geladen hat (die Höhe kommt allein aus dem
-// CSS-Seitenverhältnis des Containers, nicht aus den Bild-Bytes). Da die
-// Karte NUR das Bild zeigt (siehe Kommentar bei INFO_WINDOW_EDGE_MARGIN_PX),
-// ist das zugleich die GESAMTE, unveränderliche Höhe der Karte — sie wächst
-// nie nachträglich, es gibt also nichts zu messen oder zu erraten.
+// CSS-Seitenverhältnis des Containers, nicht aus den Bild-Bytes). Das ist
+// die GESAMTE, unveränderliche Höhe der Karte für die (eingefrorene)
+// Positionierung — EINGEFROREN, siehe INFO_WINDOW_EDGE_MARGIN_PX-Kommentar.
+// Das Nebenstandorte/Tags/User-Tags-Panel in HoverCardBody (siehe dort)
+// wächst NICHT in diese Höhe hinein: es ist strikt `absolute` innerhalb des
+// aspect-[4/3]-Containers platziert (aus dem Layout-Fluss entfernt) und
+// kann diese Höhe deshalb nie beeinflussen, egal wie viel Inhalt es zeigt.
 const HOVER_CARD_IMAGE_HEIGHT_PX = (HOVER_CARD_WIDTH_PX * 3) / 4;
+// Verzögerung vor dem Nachladen von Nebenstandorten/Tags/User-Tags fürs
+// Hover-Vorschaubild — bewusst EIGENE, von HOVER_LEAVE_DEBOUNCE_MS getrennte
+// Konstante (unterschiedliche Zwecke: dort Verwerfen des Hover-Ziels, hier
+// Verzögerung des Nachlade-Fetches). searchImageLocations liefert diese
+// Felder aus Kostengründen nicht mit der (unpaginierten) Kartenabfrage mit,
+// siehe ImageLocation-Kommentar in actions.ts.
+const HOVER_DETAIL_FETCH_DEBOUNCE_MS = 400;
+// Obergrenze für den KANDIDATEN-Pool, den useFittingCount unten überhaupt
+// erst zu messen versucht — nicht die tatsächlich sichtbare Anzahl (die
+// bestimmt useFittingCount selbst, siehe HoverBadgeRow). Verhindert, dass
+// ein Bild mit z.B. 40 Tags 40 DOM-Badges rendert, nur damit die Messung
+// die meisten davon gleich wieder verwirft (dasselbe Muster wie
+// MAX_VISIBLE_TAGS in image-thumbnail-card.tsx).
+const MAX_HOVER_BADGE_CANDIDATES = 8;
 
 /**
- * Der Karteninhalt fürs Hover-Vorschaubild — bewusst NUR das Bild (+
- * Hauptadresse), auf Wunsch des Users OHNE Nebenstandorte/Tags/User-Tags:
- * das macht die Kartenhöhe FEST (siehe HOVER_CARD_IMAGE_HEIGHT_PX), es gibt
- * dadurch nichts mehr nachzuladen, zu messen oder zu erraten — die Karte
- * kann direkt beim ersten Öffnen exakt positioniert werden.
+ * Eine Info-Zeile im Hover-Vorschaubild-Panel (Nebenstandorte/Tags/
+ * User-Tags) — zeigt so viele volle Badges wie in die 285px breite Zeile
+ * passen (per useFittingCount, siehe src/lib/use-fitting-count.ts — dieselbe
+ * Breiten-Messung wie bei den Grid-Kacheln), das jeweils letzte sichtbare
+ * Badge darf dabei enger werden (min-w-8 shrink statt shrink-0) und trägt
+ * bei weiteren, nicht mehr gezeigten Einträgen zusätzlich eine angehängte
+ * Ellipse — unabhängig davon, ob sein eigener Text überhaupt so lang wäre,
+ * dass er von selbst umbräche (bei kurzen Labels sonst keine sichtbare
+ * Ellipse, obwohl die Liste erkennbar weitergeht). Der "+N"-Rest landet per
+ * ml-auto rechtsbündig direkt danach — bewusst ein SCHLICHTER Text statt der
+ * interaktiven OverflowBadgesPopover aus der Kachel (image-thumbnail-card.tsx):
+ * diese Karte ist komplett pointer-events-none (siehe HoverCardBody), ein
+ * Klick-/Hover-Popover wäre hier unerreichbar. Die Breiten-Messung selbst
+ * beeinflusst nur den INHALT dieser (bereits fest 285px breiten) Zeile,
+ * nie die Kartengröße selbst (siehe HOVER_CARD_IMAGE_HEIGHT_PX-Kommentar) —
+ * unproblematisch für die eingefrorene Positionierung.
  */
-function HoverCardBody({ location }: { location: ColoredImageLocation }) {
+function HoverBadgeRow({
+  icon: Icon,
+  items,
+  iconClassName,
+  badgeClassName,
+}: {
+  icon: LucideIcon;
+  items: string[];
+  iconClassName: string;
+  badgeClassName: string;
+}) {
+  const candidates = items.slice(0, MAX_HOVER_BADGE_CANDIDATES);
+  const [rowRef, fitCount] = useFittingCount(candidates.length);
+  if (items.length === 0) return null;
+  const visible = candidates.slice(0, fitCount);
+  const hiddenCount = items.length - visible.length;
+  return (
+    <div className="flex items-center gap-1">
+      <Icon className={cn("size-3 shrink-0", iconClassName)} />
+      <div ref={rowRef} className="flex flex-1 flex-nowrap items-center gap-1 overflow-hidden">
+        {visible.map((item, index) => {
+          const isLast = index === visible.length - 1;
+          const showsMore = isLast && hiddenCount > 0;
+          return (
+            <Badge
+              key={`${item}-${isLast ? "trailing" : "full"}`}
+              className={cn("max-w-full text-[11px]", isLast ? "min-w-8 shrink" : "shrink-0", badgeClassName)}
+            >
+              <span className="min-w-0 truncate">{showsMore ? `${item}…` : item}</span>
+            </Badge>
+          );
+        })}
+        {hiddenCount > 0 && (
+          <span className={cn("ml-auto shrink-0 text-[11px] font-medium", iconClassName)}>+{hiddenCount}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Der Karteninhalt fürs Hover-Vorschaubild — Bild + Hauptadresse sofort
+ * sichtbar; Nebenstandorte/Tags/User-Tags (details, siehe
+ * detailsById/handleMarkerMouseOver in MapMarkersAndBounds) blenden erst
+ * nachträglich als Panel ein, sobald sie geladen sind. Das Panel ist
+ * bewusst strikt `absolute` innerhalb des `aspect-[4/3]`-Containers
+ * platziert (siehe HOVER_CARD_IMAGE_HEIGHT_PX-Kommentar) — es beeinflusst
+ * die (eingefrorene) Kartenhöhe dadurch nie, egal wie viel Inhalt es zeigt.
+ */
+function HoverCardBody({
+  location,
+  details,
+}: {
+  location: ColoredImageLocation;
+  /** undefined = noch nicht (fertig) geladen, null = Fetch ohne Treffer —
+   * in beiden Fällen bleibt das Panel unsichtbar. */
+  details: ImageSearchRow | null | undefined;
+}) {
+  const hasExtra = Boolean(
+    details && (details.secondaryLocations.length > 0 || details.tags.length > 0 || details.userTags.length > 0)
+  );
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
   return (
     <div className="pointer-events-none w-[285px] overflow-hidden rounded-xl bg-black outline-4 outline-black/50">
-      <div className="relative aspect-[4/3]">
+      <div className="relative aspect-[4/3] overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element -- festes Vorschaubild, kein next/image-Mehrwert in einem Google-Maps-InfoWindow */}
-        <img src={thumbUrlFor(location.id)} alt="" className="size-full object-cover" />
+        <img
+          src={thumbUrlFor(location.id)}
+          alt=""
+          className="size-full object-cover"
+          onLoad={() => setIsImageLoaded(true)}
+        />
+
+        {/* Spinner, solange das Thumbnail noch lädt — die Karte wird pro
+            gehovertem Marker über key={location.id} am Aufrufort neu
+            gemountet (siehe MapMarkersAndBounds), isImageLoaded startet
+            deshalb bei jedem Markerwechsel wieder bei false. */}
+        {!isImageLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <Loader2 className="size-6 animate-spin text-primary" />
+          </div>
+        )}
+
+        {/* ID/Favorit stammen aus details (ImageSearchRow), nicht aus
+            location (ImageLocation) — die schlanke, unpaginierte
+            Karten-Query lädt bewusst kein hash/isFavorite (siehe
+            ImageLocation-Kommentar in actions.ts). Erscheinen deshalb erst,
+            sobald details geladen ist: sofort bei bereits gecachten
+            Markern, sonst verzögert nach dem debounced Fetch (siehe
+            detailsById-Effekt in MapMarkersAndBounds) — reine Anzeige,
+            keine CopyableId/FavoriteButton-Interaktivität, da die Karte
+            komplett pointer-events-none ist.
+
+            Wrapper bleibt IMMER gemountet (wie das Nebenstandorte/Tags-
+            Panel unten) und blendet nur per opacity-Transition ein/aus —
+            bei bedingtem Mounten (`{details && <div>...}`) gäbe es keinen
+            "Vorher"-Zustand im DOM, aus dem heraus animiert werden könnte,
+            die Badges würden also hart erscheinen statt sanft einzublenden. */}
+        <div
+          className={cn(
+            "absolute top-1 right-1 flex items-center gap-1 transition-opacity duration-500",
+            details ? "opacity-100" : "opacity-0"
+          )}
+        >
+          {details && (
+            <>
+              {/* rounded-md statt der Badge-Standardform (rounded-4xl/
+                  Pille, siehe badge.tsx) — auf Wunsch des Users eine
+                  eckigere "Badge"-Optik statt einer Pille, passend zur
+                  eckigen Form des Favoriten-Containers direkt daneben.
+                  twMerge (via cn) löst den Klassenkonflikt auf, rounded-md
+                  gewinnt. */}
+              <Badge className={cn("gap-1 rounded-md text-[11px] text-primary", BUTTON_GLASS_CLASS)}>
+                ID {details.hash}
+              </Badge>
+              {/* size-5 statt size-6 — an die Höhe des ID-Badges daneben
+                  angeglichen (Badge-Basisklasse ist h-5, siehe badge.tsx),
+                  sonst standen beide unterschiedlich hoch nebeneinander. */}
+              <div className={cn("flex size-5 items-center justify-center rounded-md", BUTTON_GLASS_CLASS)}>
+                <Heart className={cn("size-3 text-primary", details.isFavorite && "fill-current")} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Blendet aus, sobald das Panel unten dieselbe Info (als erste
+            Zeile) zeigt — verhindert eine doppelte Anzeige der Hauptadresse.
+            Bleibt unverändert sichtbar, solange kein Panel erscheint (der
+            allergrößte Teil der Bilder hat keine Nebenstandorte/Tags). */}
         {location.mainLocation && (
           <Badge
-            className={cn("absolute bottom-1 left-1 max-w-[70%] gap-1 text-[11px] text-primary", BUTTON_GLASS_CLASS)}
+            className={cn(
+              "absolute bottom-1 left-1 max-w-[70%] gap-1 text-[11px] text-primary transition-opacity duration-300",
+              BUTTON_GLASS_CLASS,
+              hasExtra && "opacity-0"
+            )}
           >
             <MapPin className="size-3 shrink-0" />
             <span className="truncate">{location.mainLocation}</span>
           </Badge>
         )}
+
+        {/* Immer gemountet (nicht erst bei hasExtra), damit der Wechsel von
+            opacity-0 auf opacity-100 tatsächlich ANIMIERT statt beim
+            allerersten Erscheinen sofort im Endzustand zu stehen. Rein
+            absolut positioniert innerhalb des aspect-[4/3]-Containers —
+            beeinflusst dessen (eingefrorene) Layout-Größe deshalb nie, egal
+            wie viel Inhalt letztlich hineingerendert wird (siehe
+            HOVER_CARD_IMAGE_HEIGHT_PX-Kommentar). */}
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 space-y-0.5 bg-gradient-to-t from-black/95 via-black/75 to-transparent px-2 pt-5 pb-1.5 transition-all duration-300",
+            hasExtra ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0"
+          )}
+        >
+          <div className="-mt-5 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent" />
+          {location.mainLocation && (
+            <div className="flex items-center gap-1">
+              <MapPin className="size-3 shrink-0 text-primary" />
+              <Badge className={cn("max-w-full shrink-0 text-[11px] text-primary", BUTTON_GLASS_CLASS)}>
+                <span className="min-w-0 truncate">{location.mainLocation}</span>
+              </Badge>
+            </div>
+          )}
+          {details && (
+            <>
+              <HoverBadgeRow
+                icon={Signpost}
+                items={details.secondaryLocations}
+                iconClassName="text-primary"
+                badgeClassName={cn("text-primary", BUTTON_GLASS_CLASS)}
+              />
+              <HoverBadgeRow
+                icon={TagIcon}
+                items={details.tags}
+                iconClassName={TAG_ACCENT_TEXT_CLASS}
+                badgeClassName={cn(TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+              />
+              <HoverBadgeRow
+                icon={UserTagsIcon}
+                items={details.userTags.map((entry) => entry.tag)}
+                iconClassName={TAG_ACCENT_TEXT_CLASS}
+                badgeClassName={cn(TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS)}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -504,6 +734,8 @@ function MapMarkersAndBounds({
   containerRef,
   highlightedId,
   onSelectImage,
+  isPreviewOpen,
+  knownRowsById,
 }: {
   locations: ColoredImageLocation[];
   bounds: SimpleBounds | null;
@@ -514,6 +746,13 @@ function MapMarkersAndBounds({
   containerRef: React.RefObject<HTMLDivElement | null>;
   highlightedId?: string | null;
   onSelectImage: (id: string) => void;
+  /** Ob das große Vollbild-Preview (images-page-client.tsx) gerade offen
+   * ist — siehe Effekt unten, der die kleine Kartenvorschau beim Schließen
+   * mitschließt. */
+  isPreviewOpen: boolean;
+  /** Siehe ImagesMapView — Vorrang vor detailsById unten, löst das
+   * Stale-Cache-Problem nach einer Bearbeitung über das große Preview. */
+  knownRowsById: ReadonlyMap<string, ImageSearchRow>;
 }) {
   const map = useMap();
   // Für die Rand-Kollisionsberechnung/Messung, siehe handleMarkerMouseOver
@@ -584,6 +823,70 @@ function MapMarkersAndBounds({
     window.addEventListener("mousemove", handleWindowMouseMove);
     return () => window.removeEventListener("mousemove", handleWindowMouseMove);
   }, []);
+
+  // Schließt die kleine Kartenvorschau mit, sobald das große Vollbild-
+  // Preview schließt — während das Preview offen ist, blockiert dessen
+  // Overlay jede weitere Maus-Interaktion mit der Karte, ein echtes
+  // mouseout auf dem zugrundeliegenden Marker (siehe handleMarkerMouseOut,
+  // eingefroren) feuert deshalb nie, die kleine Vorschau bliebe sonst
+  // fälschlich stehen. Reine Ergänzung, ruft nur denselben
+  // setHoveredMarker(null)-Pfad auf, den ein echtes mouseout auch nutzen
+  // würde — die eingefrorene Positionierungslogik selbst bleibt unberührt.
+  const wasPreviewOpenRef = useRef(isPreviewOpen);
+  useEffect(() => {
+    if (wasPreviewOpenRef.current && !isPreviewOpen) {
+      setHoveredMarker(null);
+      if (hoverLeaveTimeoutRef.current) {
+        clearTimeout(hoverLeaveTimeoutRef.current);
+        hoverLeaveTimeoutRef.current = null;
+      }
+    }
+    wasPreviewOpenRef.current = isPreviewOpen;
+  }, [isPreviewOpen]);
+
+  // Nebenstandorte/Tags/User-Tags pro Bild-id — lazy nachgeladen (siehe
+  // Effekt unten), NICHT Teil von ColoredImageLocation/searchImageLocations
+  // (siehe dortiger Kommentar: bewusst schlank für die unpaginierte
+  // Kartenabfrage). undefined = noch nicht angefragt, null = Fetch ohne
+  // Treffer (z.B. zwischenzeitlich gelöscht/nicht mehr sichtbar). Cache
+  // bleibt über die gesamte Komponenten-Lebensdauer bestehen — erneutes
+  // Hovern desselben Markers ist dadurch instant (kein erneuter Fetch).
+  const [detailsById, setDetailsById] = useState<Record<string, ImageSearchRow | null>>({});
+  // Für einen Lesezugriff INNERHALB des Fetch-Effekts unten, ohne dass der
+  // Effekt bei jeder Cache-Aktualisierung neu binden muss (dasselbe Muster
+  // wie projectionOverlayRef/onSelectImageRef oben).
+  const detailsByIdRef = useRef(detailsById);
+  useEffect(() => {
+    detailsByIdRef.current = detailsById;
+  }, [detailsById]);
+
+  // Lädt Nebenstandorte/Tags/User-Tags NACHTRÄGLICH und verzögert (siehe
+  // HOVER_DETAIL_FETCH_DEBOUNCE_MS), rein LESEND an hoveredMarker?.id
+  // gekoppelt — bewusst ein GANZ EIGENER Effekt, unabhängig von
+  // handleMarkerMouseOver/-Out und computeCardCorrection (eingefroren,
+  // siehe INFO_WINDOW_EDGE_MARGIN_PX-Kommentar): schreibt nie in
+  // hoveredMarker oder pixelOffset, kann die Positionierung deshalb nicht
+  // beeinflussen. Ein Marker-Wechsel (oder Schließen der Karte) räumt einen
+  // noch nicht gefeuerten Timer über das Cleanup automatisch weg.
+  useEffect(() => {
+    const id = hoveredMarker?.id ?? null;
+    // knownRowsById.has(id): images-page-client.tsx kennt diese Zeile
+    // bereits aktuell (rows/externalPreviewRow) — ein eigener Fetch wäre
+    // hier reine Verschwendung, siehe Render-Stelle unten für den
+    // eigentlichen Vorrang.
+    if (!id || knownRowsById.has(id) || detailsByIdRef.current[id] !== undefined) return;
+    const timeoutId = setTimeout(() => {
+      void getImageById(id).then((row) => {
+        // Zwischenzeitlich zu einem ANDEREN Marker gewechselt (oder ganz
+        // geschlossen) — dieses Ergebnis gehört nicht mehr zur aktuell
+        // gezeigten Karte, wird trotzdem gecacht (kommt beim erneuten
+        // Hovern desselben Markers zugute), aber nicht mehr "frisch"
+        // benötigt.
+        setDetailsById((prev) => (prev[id] !== undefined ? prev : { ...prev, [id]: row }));
+      });
+    }, HOVER_DETAIL_FETCH_DEBOUNCE_MS);
+    return () => clearTimeout(timeoutId);
+  }, [hoveredMarker?.id, knownRowsById]);
 
   // Stabile (per useCallback über die gesamte Marker-Hover-Sitzung hinweg
   // gleichbleibende) Event-Handler statt der früheren, direkt in der
@@ -736,8 +1039,17 @@ function MapMarkersAndBounds({
           path: google.maps.SymbolPath.CIRCLE,
           scale: isHighlighted ? 9 : 5,
           fillColor: markerColor,
-          fillOpacity: isHighlighted ? HIGHLIGHT_FILL_OPACITY : 0.3,
-          strokeWeight: isHighlighted ? HIGHLIGHT_STROKE_WEIGHT : 0,
+          fillOpacity: isHighlighted ? HIGHLIGHT_FILL_OPACITY : MARKER_FILL_OPACITY,
+          // Beim hervorgehobenen Marker bleibt der bestehende ECHTE (sicht-
+          // bare) Rand unangetastet — er ist ohnehin schon größer (scale 9)
+          // und hat mit HIGHLIGHT_STROKE_WEIGHT bereits eine reale, breite
+          // Randfläche, die zur Trefferfläche zählt (per Messung bestätigt:
+          // die Trefferfläche zählt auch bei sichtbarem Rand dessen Breite
+          // mit). Beim normalen (winzigen) Marker dagegen ein rein
+          // UNSICHTBARER Rand (strokeOpacity 0) einzig zur Vergrößerung der
+          // Trefferfläche, siehe MARKER_HIT_PADDING_PX-Kommentar oben.
+          strokeWeight: isHighlighted ? HIGHLIGHT_STROKE_WEIGHT : MARKER_HIT_PADDING_PX * 2,
+          strokeOpacity: isHighlighted ? 1 : 0,
           strokeColor: markerColor,
         },
         // Einmal pro Marker gebunden (nicht bei jedem Render neu) — siehe
@@ -772,15 +1084,18 @@ function MapMarkersAndBounds({
           Marker, Google übernimmt Positionierung/Nachführen bei Pan/Zoom)
           statt einer selbstgebauten, absolut positionierten Overlay-Div.
           thumbUrlFor(id) ist eine reine Funktion nur aus der id (siehe
-          image-folder.ts) — kein Datennachladen nötig. Zeigt nur die
-          Hauptadresse (dieselbe Info, die auf der Kachel auch OHNE Hover
-          permanent sichtbar ist), bewusst OHNE Nebenstandorte/Tags/
-          User-Tags (siehe HoverCardBody) — dadurch ist die Kartenhöhe fix
-          bekannt und die Position beim Öffnen immer exakt, ohne Verzögerung
-          oder Nachladen. Favorit/Bearbeiten/Löschen bleiben bewusst außen
-          vor — das sind Aktionen, keine Information, und passen nicht zu
-          einer nicht-interaktiven Kartenvorschau (pointer-events-none,
-          siehe HoverCardBody). */}
+          image-folder.ts) — kein Datennachladen fürs Bild selbst nötig.
+          Zeigt SOFORT Bild + Hauptadresse — die Position beim Öffnen ist
+          dadurch immer exakt, ohne Verzögerung oder Raten (siehe
+          HOVER_CARD_IMAGE_HEIGHT_PX-Kommentar, EINGEFROREN). Nebenstandorte/
+          Tags/User-Tags (details) laden NACHTRÄGLICH und verzögert (siehe
+          detailsById-Effekt oben) und blenden als reines Overlay innerhalb
+          der bestehenden Kartenhöhe ein (siehe HoverCardBody) — das ändert
+          die Kartengröße nie, die Positionierung bleibt unberührt.
+          Favorit/Bearbeiten/Löschen bleiben bewusst außen vor — das sind
+          Aktionen, keine Information, und passen nicht zu einer
+          nicht-interaktiven Kartenvorschau (pointer-events-none, siehe
+          HoverCardBody). */}
       {hoveredMarker && hoveredLocation && (
         <InfoWindow
           anchor={hoveredMarker.marker}
@@ -788,7 +1103,16 @@ function MapMarkersAndBounds({
           disableAutoPan
           pixelOffset={hoveredMarker.pixelOffset}
         >
-          <HoverCardBody location={hoveredLocation} />
+          <HoverCardBody
+            key={hoveredLocation.id}
+            location={hoveredLocation}
+            // knownRowsById zuerst: in images-page-client.tsx bereits
+            // geladene Zeilen (rows/externalPreviewRow) sind IMMER aktuell
+            // (z.B. gerade über das große Preview bearbeitet) — der eigene
+            // details-Cache unten kann dagegen veraltet sein, da er nie
+            // gezielt invalidiert wird (siehe Fetch-Effekt oben).
+            details={knownRowsById.get(hoveredMarker.id) ?? detailsById[hoveredMarker.id]}
+          />
         </InfoWindow>
       )}
     </>
@@ -802,6 +1126,8 @@ export function ImagesMapView({
   standort,
   highlightedId,
   onSelectImage,
+  isPreviewOpen,
+  knownRowsById,
 }: {
   locations: ImageLocation[];
   units: AdministrativeUnit[];
@@ -815,6 +1141,14 @@ export function ImagesMapView({
   /** Klick auf einen Kartenpunkt — öffnet in images-page-client.tsx das
    * Vollbild-Preview desselben Bilds. */
   onSelectImage: (id: string) => void;
+  /** Ob das große Vollbild-Preview gerade offen ist — siehe
+   * MapMarkersAndBounds, schließt die kleine Kartenvorschau beim Schließen
+   * des großen Previews mit. */
+  isPreviewOpen: boolean;
+  /** Bereits in images-page-client.tsx geladene, IMMER aktuelle Zeilen
+   * (rows + externalPreviewRow) — siehe MapMarkersAndBounds, bekommt dort
+   * Vorrang vor dem eigenen, potenziell veralteten details-Cache. */
+  knownRowsById: ReadonlyMap<string, ImageSearchRow>;
 }) {
   const isDark = useIsDarkTheme();
   const [wrapperRef, containerWidth] = useContainerWidth();
@@ -877,6 +1211,23 @@ export function ImagesMapView({
         [data-testid="images-map-view"] .gm-style-iw-tc { display: none !important; }
         [data-testid="images-map-view"] .gm-style-iw-chr,
         [data-testid="images-map-view"] .gm-ui-hover-effect { display: none !important; }
+        /* Google setzt den Pan-Cursor selbst per Inline-Style auf ein
+           EIGENES, extern nachgeladenes .cur-Bild (openhand_8_8.cur beim
+           Ruhezustand, closedhand_8_8.cur beim aktiven Ziehen) — das
+           betroffene div trägt dabei weder Klasse noch sonst ein
+           Attribut, über das es sich gezielt ansprechen ließe. Der
+           Dateiname selbst ist aber seit Jahren stabil (dieselbe
+           Begründung wie bei .gm-fullscreen-control oben) und lässt sich
+           darüber im Inline-Style-Attribut selbst finden. Auf Wunsch des
+           Users NICHT die Hand-Cursor (Googles eigener Stil), sondern beim
+           Herumfahren der ganz normale Cursor (default) und beim aktiven
+           Ziehen der Kreuz-/4-Pfeile-Cursor (move) — beides native
+           CSS-Schlüsselwörter, die keinen externen Datei-Ladevorgang
+           brauchen und deshalb auch dann zuverlässig funktionieren, wenn
+           Googles eigene .cur-Datei (z.B. durch einen Adblocker/
+           Privacy-Filter oder ein Netzwerkproblem) beim User nicht lädt. */
+        [data-testid="images-map-view"] [style*="openhand"] { cursor: default !important; }
+        [data-testid="images-map-view"] [style*="closedhand"] { cursor: move !important; }
       `}</style>
       <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}>
         {/* Bewusst OHNE colorScheme-Prop: die steuert nur Googles eigene
@@ -902,6 +1253,8 @@ export function ImagesMapView({
             containerRef={wrapperRef}
             highlightedId={highlightedId}
             onSelectImage={onSelectImage}
+            isPreviewOpen={isPreviewOpen}
+            knownRowsById={knownRowsById}
           />
         </Map>
       </APIProvider>
