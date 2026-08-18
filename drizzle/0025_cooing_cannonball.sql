@@ -1,0 +1,1 @@
+ALTER TABLE "shop_print_formats" ADD COLUMN "is_featured" boolean DEFAULT false NOT NULL;

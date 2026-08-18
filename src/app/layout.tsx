@@ -5,6 +5,7 @@ import Script from "next/script";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { GUEST_SETTINGS_STORAGE_KEY } from "@/lib/guest-settings";
+import { AppAlertDialog } from "@/components/app-alert-dialog";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -55,6 +56,7 @@ export default async function RootLayout({
           `}
         </Script>
         {children}
+        <AppAlertDialog />
       </body>
     </html>
   );

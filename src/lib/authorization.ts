@@ -168,6 +168,27 @@ export function canManageLocationGrants(role: Role | undefined | null): boolean 
   return role === "super_admin";
 }
 
+/**
+ * Darf den Shop (Pakete, Kategorien, Preise, Standort-/Bild-Zuordnung)
+ * verwalten. Aktuell dieselbe Schwelle wie canManageUsers/
+ * canManageLocationGrants, aber bewusst eine eigene Funktion — andere
+ * Ressource, die zufällig denselben Wert hat.
+ */
+export function canManageShop(role: Role | undefined | null): boolean {
+  return role === "super_admin";
+}
+
+/**
+ * Darf Bestellungen einsehen/verwalten (Lieferadressen, Drucke als
+ * "verschickt" markieren, siehe /admin/orders). Aktuell dieselbe Schwelle
+ * wie canManageShop, aber bewusst eine eigene Funktion — Katalog verwalten
+ * und Bestellungen abwickeln sind unterschiedliche Verantwortungen, die
+ * zufällig demselben Rollen-Level zugeteilt sind.
+ */
+export function canManageOrders(role: Role | undefined | null): boolean {
+  return role === "super_admin";
+}
+
 export interface CanAssignImageLocationInput {
   actingRole: Role;
   standort: StandortRef;

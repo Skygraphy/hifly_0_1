@@ -1,0 +1,1 @@
+ALTER TABLE "shop_packages" ADD COLUMN "is_featured" boolean DEFAULT false NOT NULL;

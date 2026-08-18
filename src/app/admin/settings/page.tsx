@@ -10,6 +10,7 @@ import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { GlobalSettingRow } from "./global-setting-row";
 import { PersonalSettingPermissionRow } from "./personal-setting-permission-row";
 
@@ -28,7 +29,7 @@ export default async function AdminSettingsPage() {
   const permissions = await getPersonalSettingPermissions();
 
   return (
-    <main className="relative min-h-screen bg-background">
+    <main className="relative min-h-screen bg-background p-8">
       <BackLink href="/admin" label="Zurück zum Admin-Bereich" />
       <AccountMenuSlot>
         <div className="flex items-center gap-2">
@@ -36,10 +37,22 @@ export default async function AdminSettingsPage() {
           <AccountMenu user={session.user} />
         </div>
       </AccountMenuSlot>
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-        <Card className="w-full max-w-sm">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+        {/* max-w-6xl wie die Kachelansicht (Bilder/Shop) statt der schmalen
+            Auth-Karten (max-w-sm) — Label + Beschreibung + Zahlen-Input +
+            Speichern-Button nebeneinander (siehe GlobalSettingRow) brauchen
+            mehr Platz, sonst quetscht sich der Beschreibungstext bei
+            längeren Einstellungen (z.B. den Marker-/Ansichten-Schwellen)
+            auf mehrere, kaum lesbare Zeilen zusammen. Oben statt vertikal
+            zentriert (auf Wunsch des Users) — anders als bei den schmalen
+            Auth-Karten wirkte eine so breite Karte mittig auf dem Bildschirm
+            wie ein Layout-Fehler, nicht wie eine bewusste Zentrierung. */}
+        <div className="mt-6">
+          <BrandMark />
+        </div>
+        <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "App-Einstellungen" }]} className="mt-4" />
+        <Card className="mt-6 w-full">
           <CardHeader>
-            <BrandMark />
             <CardTitle className="flex items-center gap-2 text-2xl">
               <Settings className="size-6" />
               App-Einstellungen
@@ -51,7 +64,10 @@ export default async function AdminSettingsPage() {
             ))}
           </CardContent>
         </Card>
-        <Card className="w-full max-w-sm">
+        {/* Gleiche Breite wie die App-Einstellungen-Karte oben (auf Wunsch
+            des Users) — beide Karten stehen auf derselben Seite direkt
+            untereinander, unterschiedliche Breiten wirkten inkonsistent. */}
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-2xl">
               <ShieldCheck className="size-6" />

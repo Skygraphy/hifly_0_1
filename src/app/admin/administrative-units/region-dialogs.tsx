@@ -27,6 +27,7 @@ import { ADMINISTRATIVE_LEVEL_LABELS, pathToRoot, type AdministrativeUnit } from
 import { createRegion, updateRegion, deleteRegion, setRegionUnitsWithinScope } from "./region-actions";
 import type { Region } from "@/lib/regions";
 import type { ColumnRegionsTarget } from "./types";
+import { showAppAlert } from "@/lib/app-alert";
 
 function pathLabel(unit: AdministrativeUnit, byId: Map<string, AdministrativeUnit>): string {
   return pathToRoot(unit.id, byId)
@@ -229,7 +230,7 @@ export function DeleteRegionDialog({
               startTransition(async () => {
                 const result = await deleteRegion(region.id);
                 if (!result.success) {
-                  alert(result.error ?? "Löschen fehlgeschlagen.");
+                  showAppAlert(result.error ?? "Löschen fehlgeschlagen.");
                   return;
                 }
                 onDeleted();

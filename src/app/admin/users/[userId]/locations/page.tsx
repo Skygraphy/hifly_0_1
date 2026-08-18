@@ -1,6 +1,5 @@
 import { redirect, notFound } from "next/navigation";
-import Link from "next/link";
-import { MapPinned, ArrowLeft } from "lucide-react";
+import { MapPinned } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { canManageLocationGrants } from "@/lib/authorization";
@@ -11,7 +10,7 @@ import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
-import { buttonVariants } from "@/components/ui/button";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { LocationGrantsManager } from "./location-grants-manager";
 
 export default async function UserLocationGrantsPage({ params }: { params: Promise<{ userId: string }> }) {
@@ -88,6 +87,14 @@ export default async function UserLocationGrantsPage({ params }: { params: Promi
         <div className="mt-6">
           <BrandMark />
         </div>
+        <Breadcrumb
+          items={[
+            { label: "Admin", href: "/admin" },
+            { label: "User-Rechte verwalten", href: "/admin/users" },
+            { label: `Standorte freigeben — ${targetUser.name ?? targetUser.email}` },
+          ]}
+          className="mt-4"
+        />
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <MapPinned className="size-6 text-primary" />
           Standorte freigeben — {targetUser.name ?? targetUser.email}
@@ -99,10 +106,6 @@ export default async function UserLocationGrantsPage({ params }: { params: Promi
           initialGrantedUnitIds={grantRows.map((grant) => grant.administrativeUnitId).filter((id): id is string => id !== null)}
           initialGrantedRegionIds={grantRows.map((grant) => grant.regionId).filter((id): id is string => id !== null)}
         />
-        <Link href="/admin/users" className={buttonVariants({ variant: "default", className: "mt-6" })}>
-          <ArrowLeft className="size-4" />
-          Zurück
-        </Link>
       </div>
     </main>
   );

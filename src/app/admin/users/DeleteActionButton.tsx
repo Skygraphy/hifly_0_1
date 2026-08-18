@@ -16,6 +16,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { deleteUser } from "./actions";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function DeleteActionButton({ userId, email }: { userId: string; email: string }) {
   const [open, setOpen] = useState(false);
@@ -49,7 +50,7 @@ export function DeleteActionButton({ userId, email }: { userId: string; email: s
               startTransition(async () => {
                 const result = await deleteUser(userId);
                 if (!result.success) {
-                  alert(result.error ?? "Löschen fehlgeschlagen.");
+                  showAppAlert(result.error ?? "Löschen fehlgeschlagen.");
                 }
                 setOpen(false);
               });

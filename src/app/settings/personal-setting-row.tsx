@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setPersonalSetting } from "./actions";
 import { applyThemePreference } from "@/lib/apply-theme";
 import type { PersonalSettingDefinition } from "@/lib/settings-registry";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function PersonalSettingRow({
   def,
@@ -17,6 +19,13 @@ export function PersonalSettingRow({
   initialValue: unknown;
 }) {
   const [value, setValue] = useState(initialValue);
+  // Zuletzt tatsächlich GESPEICHERTER Wert (nicht der aktuelle Feld-Wert!)
+  // — der Speichern-Button ist deaktiviert, solange beide übereinstimmen
+  // (gleiche, vom User bereits bestätigte Konvention wie GlobalSettingRow/
+  // PriceCell). Wird NUR bei Erfolg aktualisiert, damit ein abgelehnter
+  // Speicherversuch den Button wieder aktiv lässt statt fälschlich
+  // "erledigt" zu zeigen.
+  const [lastSavedValue, setLastSavedValue] = useState(initialValue);
   const [isPending, startTransition] = useTransition();
 
   function save(next: unknown) {
@@ -30,9 +39,26 @@ export function PersonalSettingRow({
     }
     startTransition(async () => {
       const result = await setPersonalSetting(def.key, next);
-      if (!result.success) alert(result.error ?? "Speichern fehlgeschlagen.");
+      if (!result.success) {
+        showAppAlert(result.error ?? "Speichern fehlgeschlagen.");
+        return;
+      }
+      setLastSavedValue(next);
     });
   }
+
+  // Gleiche Zahlen-Behandlung wie GlobalSettingRow — type: "number" landete
+  // hier bisher wie "string", der Speichern-Button war zudem nie bis zu
+  // einer echten Änderung deaktiviert (siehe Audit-Ergebnis).
+  const isNumber = def.type === "number";
+  const numericValue = isNumber ? Number(value) : null;
+  const isInvalidNumber =
+    isNumber &&
+    (String(value).trim() === "" ||
+      Number.isNaN(numericValue) ||
+      !Number.isInteger(numericValue) ||
+      (numericValue as number) <= 0);
+  const hasUnsavedChange = (isNumber ? numericValue : value) !== lastSavedValue;
 
   return (
     <div className="flex items-center justify-between gap-4 border-b py-3 last:border-b-0">
@@ -72,14 +98,31 @@ export function PersonalSettingRow({
         />
       ) : (
         <div className="flex items-center gap-2">
-          <Input
-            value={String(value)}
-            onChange={(event) => setValue(event.target.value)}
-            disabled={isPending}
-            className="w-32"
-            data-testid={`setting-${def.key}`}
-          />
-          <Button size="sm" disabled={isPending} onClick={() => save(value)}>
+          {isNumber ? (
+            <NumberInput
+              min={1}
+              step={1}
+              value={String(value)}
+              onChange={(event) => setValue(event.target.value)}
+              disabled={isPending}
+              className="w-32"
+              data-testid={`setting-${def.key}`}
+            />
+          ) : (
+            <Input
+              type="text"
+              value={String(value)}
+              onChange={(event) => setValue(event.target.value)}
+              disabled={isPending}
+              className="w-32"
+              data-testid={`setting-${def.key}`}
+            />
+          )}
+          <Button
+            size="sm"
+            disabled={isPending || isInvalidNumber || !hasUnsavedChange}
+            onClick={() => save(isNumber ? numericValue : value)}
+          >
             Speichern
           </Button>
         </div>

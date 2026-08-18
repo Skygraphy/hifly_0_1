@@ -21,6 +21,7 @@ import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { RoleActionButton } from "./RoleActionButton";
 import { BlockActionButton } from "./BlockActionButton";
 import { DeleteActionButton } from "./DeleteActionButton";
@@ -64,6 +65,7 @@ export default async function AdminUsersPage() {
         <div className="mt-6">
           <BrandMark />
         </div>
+        <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "User-Rechte verwalten" }]} className="mt-4" />
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <Users className="size-6 text-primary" />
           User-Rechte verwalten

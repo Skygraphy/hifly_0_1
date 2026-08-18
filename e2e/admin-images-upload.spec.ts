@@ -403,7 +403,7 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
         "Matchtest Gasse",
         "2024-01-01",
         10,
-        "AAAAAA",
+        "DDDDDD",
         "99999999-9999-9999-9999-999999999998",
         tullnId,
         uploaderId,
@@ -527,7 +527,11 @@ test("Abgleich durchführen synchronisiert die Datei-Felder einer vorhandenen im
     expect(row.main_location).toBe("Neuer Ort");
     expect(row.secondary_locations).toEqual(["S1"]);
     expect(row.tags).toEqual(["T1"]);
-    expect(row.user_tags).toEqual(["U1"]);
+    // user_tags wird vom Abgleich bewusst NICHT aus der Datei übernommen
+    // (siehe PrepareImageMatchResult in src/app/admin/images/actions.ts) —
+    // bleibt daher beim nie gesetzten Ausgangswert (null) statt "U1" aus der
+    // Match-Datei zu übernehmen.
+    expect(row.user_tags).toBeNull();
     expect(row.web_visible).toBe(true);
     expect(row.web_ranking).toBe(2);
     expect(row.print_visible).toBe(false);

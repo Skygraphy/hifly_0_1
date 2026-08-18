@@ -17,6 +17,7 @@ import { setPersonalSetting } from "@/app/settings/actions";
 import { parseStandortValue, type StandortRef } from "@/lib/standort";
 import { groupRegionsByParent, type Region, type RegionAdministrativeUnitLink } from "@/lib/regions";
 import type { AccountMenuUser } from "@/components/account-menu";
+import { showAppAlert } from "@/lib/app-alert";
 
 const SETTING_KEY = "default_administrative_unit";
 
@@ -103,7 +104,7 @@ export function AdministrativeLevelWidget({
     if (user) {
       startTransition(async () => {
         const result = await setPersonalSetting(SETTING_KEY, next);
-        if (!result.success) alert(result.error ?? "Änderung fehlgeschlagen.");
+        if (!result.success) showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
       });
     } else {
       setGuestSetting(SETTING_KEY, next);

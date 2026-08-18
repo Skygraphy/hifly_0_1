@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { administrativeUnits } from "@/db/schema";
 import { canManageAdministrativeUnits } from "@/lib/authorization";
+import { getPostgresErrorCode } from "@/lib/db-errors";
 import type { AdministrativeLevel } from "@/lib/administrative-units";
 
 export interface AdministrativeUnitActionResult {
@@ -67,7 +68,7 @@ export async function createAdministrativeUnit(
     revalidatePath("/admin/administrative-units");
     return { success: true, id: row.id };
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_UNIQUE_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_UNIQUE_VIOLATION) {
       return { success: false, error: DUPLICATE_CODE_ERROR };
     }
     throw err;
@@ -105,7 +106,7 @@ export async function updateAdministrativeUnit(
     revalidatePath("/admin/administrative-units");
     return { success: true, id };
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_UNIQUE_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_UNIQUE_VIOLATION) {
       return { success: false, error: DUPLICATE_CODE_ERROR };
     }
     throw err;
@@ -140,7 +141,7 @@ export async function setAdministrativeUnitPublished(
       .set({ published, updatedAt: new Date() })
       .where(eq(administrativeUnits.id, id));
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_CHECK_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_CHECK_VIOLATION) {
       return { success: false, error: FEDERAL_UNPUBLISHED_ERROR };
     }
     throw err;

@@ -1,0 +1,38 @@
+Hier eine strategische Einordnung, wie ich das Modell aufbauen würde. Ich habe kurz recherchiert, wie ähnliche Anbieter (Drohnenfoto/Luftbild-Dienstleister in Österreich/DACH) ihre Leistungen bepreisen, um die Zahlen nicht aus der Luft zu greifen – die Vergleichswerte bestätigen vor allem eines: Bei Luftbildern gibt es kaum transparente Listenpreise, Vergleichspreise für Drohnenfotografien im Internet zu finden ist eine echte Herausforderung, meist gibt es nur Pauschalangebote ohne Transparenz. Das ist eigentlich eine Chance für dich: Wer klare, gestaffelte Preise zeigt, wirkt sofort seriöser als die Konkurrenz. Drohnen-luftbilder360
+Grundprinzip: Nicht das Dateiformat verkaufen, sondern die Nutzung
+Der Fehler, den viele machen: Sie bepreisen "DNG vs. JPG" wie ein technisches Produkt. Kunden kaufen aber keine Pixel, sondern eine Verwendung – Instagram-Post, gedrucktes Poster im Wohnzimmer, Werbematerial einer Firma, Pressefoto. Deshalb sollte sich dein Preis primär an der Nutzung/Lizenz orientieren, das Format ist nur die technische Konsequenz daraus.
+Das hat einen praktischen Vorteil: Da du alle vier Formate bereits fertig produziert hast, kostet dich die Auslieferung von "small + medium" statt nur "small" nichts extra. Du kannst also großzügig bündeln, ohne Marge zu verlieren.
+Wer kauft überhaupt Luftbilder von Klosterneuburg?
+•	Privatpersonen – wollen ihr eigenes Haus/Grundstück, ihre Straße, ihr Vereinsheim etc.
+•	Gewerbe/Weingüter/Gastronomie/Hotels – für Website, Social Media, Broschüren
+•	Immobilienmakler/Bauträger – Exposés, Verkaufsunterlagen
+•	Stift Klosterneuburg, Tourismusverband, Gemeinde – Marketing, Publikationen, evtl. großflächig
+•	Medien/Verlage/Blogger – redaktionelle Nutzung
+•	Deko-Käufer – Leinwand/Poster als Geschenk (ein bewährtes Geschäftsmodell bei Luftbild-Anbietern, oft als Geschenkidee für Eigenheimbesitzer beworben, die ihr Zuhause aus einem neuen Blickwinkel sehen möchten) Luftbild-suche
+Diese Gruppen haben komplett unterschiedliche Zahlungsbereitschaft – das ist der eigentliche Hebel, nicht die Auflösung.
+Empfehlung: 3 Lizenzstufen statt "Format einzeln kaufen"
+Stufe	Enthält	Nutzung	Zielgruppe	Richtpreis/Bild
+Web	small.jpg + medium.jpg	Privat, nicht-kommerziell (Social Media, private Website)	Privatpersonen, Hobby	9,90–19,90 €
+Print Privat	large.jpg (+ medium + small automatisch dazu)	Privater Druck bis ca. A2, Poster, Leinwand für Eigenbedarf	Privatpersonen, Geschenke	34,90–49,90 €
+Business/Premium	DNG + alle JPGs	Gewerbliche Nutzung, Werbung, Großformatdruck, Publikationen, Weiterverarbeitung	Firmen, Makler, Weingüter, Medien	89–149 €
+Warum nicht einzeln pro Format verkaufen? Weil "nur DNG" oder "nur small.jpg einzeln" für den Kunden schwer einzuordnen ist ("Was brauche ich eigentlich?"). Die 3 Pakete sind an einer Entscheidung orientiert ("privat oder geschäftlich, digital oder drucken"), nicht an Technik – das verkauft sich leichter und du vermeidest, dass jemand aus Unwissenheit nur small.jpg kauft und dann enttäuscht ist, wenn er es drucken will.
+Wichtig: Verkaufe die DNG nie isoliert als "billigste Rohdatei" – für 95 % der Käufer ist eine Rohdatei ohne Bearbeitung wertlos bzw. abschreckend. Die DNG ist dein Premium-Argument ("maximale Qualität, unbegrenzte Druckgröße, für professionelle Weiterverarbeitung"), nicht das Einstiegsprodukt.
+Mengenrabatt – ja, aber gestaffelt und mit Deckel nach oben
+Da die Grenzkosten pro zusätzlichem Bild bei dir praktisch null sind (kein neuer Flug, keine neue Bearbeitung), spricht viel dafür, Mehrfachkäufe zu fördern. Aber: zu aggressive Rabatte entwerten dein Archiv. Empfehlung:
+Anzahl Bilder	Rabatt
+1 Bild	Listenpreis
+3–5 Bilder	–10 %
+6–10 Bilder	–20 %
+11–25 Bilder	–30 %
+>25 / ganze Ortsteile / komplette Serie	individuelles Pauschalangebot
+Diese Staffel funktioniert für alle drei Lizenzstufen gleich (Rabatt bezieht sich auf die Summe, nicht auf die einzelne Stufe vermischt).
+Der eigentlich große Hebel: institutionelle Pauschallizenzen
+Für Gemeinde, Tourismusverband oder das Stift lohnt sich kein Stückpreis-Modell. Hier verkaufst du besser eine Jahres- oder Projektlizenz ("unbegrenzte interne Nutzung von X Bildern aus dem Archiv für Marketing/Publikationen") als Pauschale, z. B. 1.500–8.000 € je nach Umfang und Exklusivität. Das ist oft die lukrativste Einzelquelle, aber Verhandlungssache – kein Listenpreis.
+Exklusivität als Aufpreis-Option
+Biete standardmäßig nicht-exklusive Lizenzen (du darfst das Bild an weitere Kunden verkaufen). Wer Exklusivität will (Bild wird aus dem Verkauf genommen), zahlt einen deutlichen Aufschlag – z. B. das 2- bis 4-fache des Business-Preises –, weil du damit zukünftige Verkäufe dieses Bildes aufgibst.
+Praktischer Verkaufskanal
+Bei >1000 hyperlokalen Bildern lohnt sich eher ein eigener kleiner Online-Shop mit Kartenansicht/Adresssuche ("Finde dein Haus/deine Straße") als der Verkauf über generische Stock-Plattformen – dort würden hyperlokale Motive ohnehin untergehen. Ergänzend: Wasserzeichen-Vorschau online, Auslieferung erst nach Zahlung, GPS/Standort als Suchfilter.
+Kurzer Hinweis
+Prüfe bei der Preisgestaltung, ob du als Kleinunternehmer (USt-Befreiung) auftrittst – das beeinflusst, ob deine Listenpreise brutto = netto sind oder ob du 20 % USt einrechnen musst. Ich bin kein Steuerberater, das solltest du kurz mit deinem Buchhalter/WKO-Berater abklären.
+________________________________________
+Kurz zusammengefasst: 3 Lizenzstufen (Web/Print-Privat/Business) statt Einzelformat-Verkauf, großzügiges Bundling der JPGs, DNG als Premium-Baustein, moderate Mengenrabatte, und für Institutionen individuelle Pauschalen statt Stückpreis.

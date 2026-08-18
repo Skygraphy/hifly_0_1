@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { deleteImage, type ImageSearchRow } from "@/app/images/actions";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function ImageDeleteDialog({
   row,
@@ -45,7 +46,7 @@ export function ImageDeleteDialog({
               startTransition(async () => {
                 const result = await deleteImage(row.id);
                 if (!result.success) {
-                  alert(result.error ?? "Löschen fehlgeschlagen.");
+                  showAppAlert(result.error ?? "Löschen fehlgeschlagen.");
                   return;
                 }
                 onDeleted(row.id);

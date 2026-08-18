@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { setPersonalSettingPermission } from "./actions";
 import type { Role } from "@/lib/authorization";
 import type { PersonalSettingDefinition } from "@/lib/settings-registry";
+import { showAppAlert } from "@/lib/app-alert";
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "user", label: "User" },
@@ -26,7 +27,7 @@ export function PersonalSettingPermissionRow({
     setMinRole(next);
     startTransition(async () => {
       const result = await setPersonalSettingPermission(def.key, next);
-      if (!result.success) alert(result.error ?? "Speichern fehlgeschlagen.");
+      if (!result.success) showAppAlert(result.error ?? "Speichern fehlgeschlagen.");
     });
   }
 

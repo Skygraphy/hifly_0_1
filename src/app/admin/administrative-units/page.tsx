@@ -9,6 +9,7 @@ import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { AdministrativeUnitsManager } from "./administrative-units-manager";
 
 export default async function AdministrativeUnitsPage() {
@@ -76,6 +77,7 @@ export default async function AdministrativeUnitsPage() {
         <div className="mt-6">
           <BrandMark />
         </div>
+        <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "Standorte & Regionen" }]} className="mt-4" />
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <MapPinned className="size-6 text-primary" />
           Standorte &amp; Regionen

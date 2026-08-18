@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { deleteImages } from "@/app/images/actions";
+import { showAppAlert } from "@/lib/app-alert";
 
 /**
  * Nach dem Muster von ImageDeleteDialog, aber für eine ganze Auswahl —
@@ -51,7 +52,7 @@ export function BulkDeleteDialog({
               startTransition(async () => {
                 const result = await deleteImages(ids);
                 if (result.skippedIds.length > 0) {
-                  alert(
+                  showAppAlert(
                     `${result.deletedIds.length} Bild(er) gelöscht, ${result.skippedIds.length} übersprungen (nicht dein Bild).`
                   );
                 }

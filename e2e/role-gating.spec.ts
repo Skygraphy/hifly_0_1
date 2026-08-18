@@ -35,5 +35,5 @@ test("super_admin darf /admin/users sehen", async ({ page }) => {
   const { email, password: superAdminPassword } = getSuperAdminCredentials();
   await loginWithCredentials(page, email, superAdminPassword);
   await page.goto("/admin/users");
-  await expect(page.getByText("User-Rechte verwalten")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "User-Rechte verwalten" })).toBeVisible();
 });

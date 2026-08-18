@@ -6,6 +6,7 @@ import { AdministrativeUnitColumnsView } from "@/components/administrative-unit-
 import { groupByParent, type AdministrativeUnit } from "@/lib/administrative-units";
 import { groupRegionsByHome, type Region } from "@/lib/regions";
 import { grantAdminLocation, revokeAdminLocation } from "../../actions";
+import { showAppAlert } from "@/lib/app-alert";
 
 function firstLeafPath(startUnit: AdministrativeUnit, byParent: Map<string | null, AdministrativeUnit[]>): string[] {
   const path: string[] = [];
@@ -68,7 +69,7 @@ export function LocationGrantsManager({
         ? await grantAdminLocation(adminUserId, { type: "unit", id: unit.id })
         : await revokeAdminLocation(adminUserId, { type: "unit", id: unit.id });
       if (!result.success) {
-        alert(result.error ?? "Änderung fehlgeschlagen.");
+        showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
       }
       router.refresh();
     });
@@ -86,7 +87,7 @@ export function LocationGrantsManager({
         ? await grantAdminLocation(adminUserId, { type: "region", id: region.id })
         : await revokeAdminLocation(adminUserId, { type: "region", id: region.id });
       if (!result.success) {
-        alert(result.error ?? "Änderung fehlgeschlagen.");
+        showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
       }
       router.refresh();
     });

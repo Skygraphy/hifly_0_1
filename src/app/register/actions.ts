@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { signIn } from "@/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { getPostgresErrorCode } from "@/lib/db-errors";
 
 const POSTGRES_UNIQUE_VIOLATION = "23505";
 const ALREADY_REGISTERED_ERROR = "Diese E-Mail ist bereits registriert.";
@@ -47,7 +48,7 @@ export async function registerWithCredentials(formData: FormData): Promise<strin
     // Race Condition zum Existenz-Check oben: zwei gleichzeitige
     // Registrierungen mit derselben E-Mail — der DB-Unique-Constraint
     // fängt das ab, hier nur in dieselbe Fehlermeldung übersetzt.
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_UNIQUE_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_UNIQUE_VIOLATION) {
       return ALREADY_REGISTERED_ERROR;
     }
     throw err;

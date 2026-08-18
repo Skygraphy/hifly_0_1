@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowUpDown, Check, Hash, Heart, Images, LayoutGrid, Map, MapPin, Tag, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -13,6 +14,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ImageGrid } from "@/components/image-grid";
 import { ImagesMapView } from "@/components/images-map-view";
 import { ImageEditDialog } from "@/components/image-edit-dialog";
@@ -24,6 +35,7 @@ import { groupByParent, collectDescendantIds, type AdministrativeUnit } from "@/
 import { canEditImage, canDeleteImage } from "@/lib/authorization";
 import { resolveTargetLevel, resolveImageColor, FALLBACK_MARKER_COLOR } from "@/lib/image-map-colors";
 import { cn } from "@/lib/utils";
+import { showAppAlert } from "@/lib/app-alert";
 import type { StandortRef } from "@/lib/standort";
 import type { Region, RegionAdministrativeUnitLink } from "@/lib/regions";
 import type { UserTagEntry } from "@/db/schema";
@@ -32,10 +44,12 @@ import { StandortFilter } from "./standort-filter";
 import {
   searchImages,
   searchImageLocations,
+  countImageLocations,
   addUserTag,
   removeUserTag,
   toggleFavorite,
   getImageById,
+  recordAnonymousImageView,
   type ImageSearchRow,
   type ImageSortBy,
   type ImageLocation,
@@ -83,6 +97,9 @@ export function ImagesPageClient({
   initialHasMore,
   initialTotal,
   user,
+  mapMarkerWarningThreshold,
+  mapMarkerHardLimit,
+  initialMapMarkerCount,
 }: {
   units: AdministrativeUnit[];
   regions: Region[];
@@ -92,8 +109,14 @@ export function ImagesPageClient({
   initialHasMore: boolean;
   initialTotal: number;
   user: AccountMenuUser | null;
+  /** Siehe settings-registry.ts (map_marker_warning_threshold/
+   * map_marker_hard_limit) — steuert den "Karte"-Umschalter unten. */
+  mapMarkerWarningThreshold: number;
+  mapMarkerHardLimit: number;
+  initialMapMarkerCount: number;
 }) {
   const byParent = useMemo(() => groupByParent(units), [units]);
+  const router = useRouter();
 
   const [standort, setStandort] = useState<StandortRef | null>(initialStandort);
   const [locationQuery, setLocationQuery] = useState("");
@@ -103,6 +126,17 @@ export function ImagesPageClient({
   const [sortBy, setSortBy] = useState<ImageSortBy>("address-asc");
   const [viewMode, setViewMode] = useState<"grid" | "map">("grid");
   const [mapLocations, setMapLocations] = useState<ImageLocation[]>([]);
+  // Trefferzahl für die Kartenansicht (Bilder MIT Koordinaten, siehe
+  // countImageLocations) — anders als mapLocations NICHT lazy, sondern bei
+  // jeder Filteränderung aktualisiert (siehe runMarkerCountCheck unten),
+  // da der "Karte"-Button-Zustand (Warnung/Sperre) schon in der
+  // Grid-Ansicht korrekt sein muss, bevor überhaupt umgeschaltet wird.
+  const [mapMarkerCount, setMapMarkerCount] = useState(initialMapMarkerCount);
+  const [isMapWarningDialogOpen, setIsMapWarningDialogOpen] = useState(false);
+  // Erklärender Hinweis, wenn die Obergrenze überschritten ist (siehe
+  // isMapBlocked unten) — der Button selbst bleibt klickbar, nur der
+  // Wechsel bleibt aus, siehe Kommentar am Button.
+  const [isMapBlockedDialogOpen, setIsMapBlockedDialogOpen] = useState(false);
   // Bild, dessen Standort-Punkt (siehe image-map-dot.tsx) zuletzt angeklickt
   // wurde — nur gesetzt, wenn der Wechsel zur Karte darüber ausgelöst wurde,
   // steuert dort die "fancy" Marker-Hervorhebung (siehe highlightedId in
@@ -239,10 +273,42 @@ export function ImagesPageClient({
     [byParent]
   );
 
+  // Aktualisiert mapMarkerCount für den "Karte"-Button (Warnung/Sperre,
+  // siehe mapMarkerWarningThreshold/mapMarkerHardLimit) — anders als
+  // runMapSearch NICHT auf viewMode === "map" beschränkt: der Button muss
+  // schon in der Grid-Ansicht wissen, ob der Wechsel erlaubt ist, BEVOR
+  // draufgeklickt wird.
+  const markerCountRequestSeq = useRef(0);
+  const runMarkerCountCheck = useCallback(
+    async (
+      nextStandort: StandortRef | null,
+      nextLocationQuery: string,
+      nextTagsQuery: string,
+      nextHashQuery: string,
+      nextFavoritesOnly: FavoritesFilter
+    ) => {
+      const seq = ++markerCountRequestSeq.current;
+      const result = await countImageLocations({
+        administrativeUnitIds:
+          nextStandort?.type === "unit" ? collectDescendantIds(nextStandort.id, byParent) : undefined,
+        regionId: nextStandort?.type === "region" ? nextStandort.id : undefined,
+        locationQuery: nextLocationQuery,
+        tagsQuery: nextTagsQuery,
+        hashQuery: nextHashQuery,
+        favoritesOnly: nextFavoritesOnly === "all" ? undefined : nextFavoritesOnly,
+        offset: 0,
+      });
+      if (seq !== markerCountRequestSeq.current) return;
+      setMapMarkerCount(result);
+    },
+    [byParent]
+  );
+
   function handleStandortChange(next: StandortRef | null) {
     setStandort(next);
     void runSearch(next, locationQuery, tagsQuery, hashQuery, favoritesOnly, 0, false, sortBy);
     if (viewMode === "map") void runMapSearch(next, locationQuery, tagsQuery, hashQuery, favoritesOnly);
+    void runMarkerCountCheck(next, locationQuery, tagsQuery, hashQuery, favoritesOnly);
   }
 
   // Diskrete Auswahl statt Texteingabe: löst wie handleStandortChange sofort
@@ -258,6 +324,7 @@ export function ImagesPageClient({
     setFavoritesOnly(next);
     void runSearch(standort, locationQuery, tagsQuery, hashQuery, next, 0, false, sortBy);
     if (viewMode === "map") void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, next);
+    void runMarkerCountCheck(standort, locationQuery, tagsQuery, hashQuery, next);
   }
 
   // Text-Filter: bei jedem Tastendruck, debounced. Der erste Durchlauf nach
@@ -271,6 +338,7 @@ export function ImagesPageClient({
     const timeout = setTimeout(() => {
       void runSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly, 0, false, sortBy);
       if (viewMode === "map") void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
+      void runMarkerCountCheck(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
     }, DEBOUNCE_MS);
     return () => clearTimeout(timeout);
     // standort/sortBy/favoritesOnly/runSearch bewusst nicht in den deps:
@@ -368,22 +436,43 @@ export function ImagesPageClient({
   // geladene Bilder werden nicht erneut gefetcht (Map-Treffer reicht) —
   // lokale Bearbeitungen halten den Eintrag ohnehin selbst aktuell (siehe
   // updateRowAnywhere/handleSaved/handleToggleFavorite).
+  // Öffnet/wechselt zu einem Vollbild-Preview UND zählt das für die anonyme
+  // Registrierungs-Sperre (siehe recordAnonymousImageView in actions.ts,
+  // GLOBAL_SETTINGS_REGISTRY: anon_image_view_limit/-window_minutes) —
+  // zentrale Stelle statt an jedem setPreviewId(id)-Aufruf einzeln (Grid-
+  // Klick, Kartenklick, Weiter/Zurück im Preview selbst zählen alle
+  // gleichermaßen als "ein Bild angeschaut"). No-op für eingeloggte User
+  // (dort meldet recordAnonymousImageView sofort blocked: false zurück,
+  // aber der Request selbst spart sich der Client hier schon). Bei
+  // erreichter Grenze aktualisiert router.refresh() den Server Component-
+  // Baum (images/page.tsx prüft dort serverseitig erneut) — die Seite
+  // ersetzt sich dadurch sofort durch die Sperr-Karte, ohne dass der User
+  // manuell neu laden muss.
+  function openPreview(id: string) {
+    setPreviewId(id);
+    if (!user) {
+      void recordAnonymousImageView().then((result) => {
+        if (result.blocked) router.refresh();
+      });
+    }
+  }
+
   async function handleSelectMapImage(imageId: string) {
     setHighlightedImageId(imageId);
     setPreviewOpenedFromMap(true);
     const existing = rows.find((row) => row.id === imageId);
     if (existing) {
-      setPreviewId(existing.id);
+      openPreview(existing.id);
       return;
     }
     if (externalRowsById.has(imageId)) {
-      setPreviewId(imageId);
+      openPreview(imageId);
       return;
     }
     const fetched = await getImageById(imageId);
     if (!fetched) return;
     setExternalRowsById((prev) => new globalThis.Map(prev).set(imageId, fetched));
-    setPreviewId(fetched.id);
+    openPreview(fetched.id);
   }
 
   // Liefert die aktuelle Zeile für eine id, egal ob sie in rows steht oder
@@ -486,7 +575,7 @@ export function ImagesPageClient({
         ...row,
         userTags: row.userTags.filter((entry) => entry !== optimisticEntry),
       }));
-      alert(result.error ?? "Tag konnte nicht hinzugefügt werden.");
+      showAppAlert(result.error ?? "Tag konnte nicht hinzugefügt werden.");
       return;
     }
     const confirmedTags = result.userTags;
@@ -505,7 +594,7 @@ export function ImagesPageClient({
     const result = await removeUserTag(imageId, tag, addedBy);
     if (!result.success) {
       if (removedEntry) updateRowAnywhere(imageId, (row) => ({ ...row, userTags: [...row.userTags, removedEntry] }));
-      alert(result.error ?? "Tag konnte nicht entfernt werden.");
+      showAppAlert(result.error ?? "Tag konnte nicht entfernt werden.");
       return;
     }
     if (result.userTags) {
@@ -556,9 +645,27 @@ export function ImagesPageClient({
       setRows(previousRows);
       setExternalRowsById(previousExternalRowsById);
       setTotal(previousTotal);
-      alert(result.error ?? "Favorit konnte nicht geändert werden.");
+      showAppAlert(result.error ?? "Favorit konnte nicht geändert werden.");
     }
   }
+
+  // Tatsächlicher Wechsel zur Kartenansicht — sowohl vom direkten Klick
+  // (unterhalb der Warnschwelle) als auch vom "Trotzdem wechseln"-Button
+  // im Warn-Dialog aufgerufen (siehe isMapWarningDialogOpen unten).
+  function openMapView() {
+    setIsMapWarningDialogOpen(false);
+    setHighlightedImageId(null);
+    setViewMode("map");
+    void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
+  }
+
+  // Siehe map_marker_warning_threshold/map_marker_hard_limit in
+  // settings-registry.ts — mapMarkerCount ist die Zahl der Bilder MIT
+  // Koordinaten (siehe countImageLocations/runMarkerCountCheck), nicht die
+  // allgemeine Grid-Trefferzahl (total): ein Filter mit vielen Bildern ohne
+  // Koordinaten soll den Kartenwechsel nicht unnötig blockieren.
+  const isMapBlocked = mapMarkerCount > mapMarkerHardLimit;
+  const needsMapWarning = !isMapBlocked && mapMarkerCount > mapMarkerWarningThreshold;
 
   const standortName = resolveStandortName(standort, units, regions);
 
@@ -780,10 +887,21 @@ export function ImagesPageClient({
               size="sm"
               data-testid="images-view-toggle"
               aria-label="Zur Kartenansicht wechseln"
+              // Bewusst NICHT disabled — auf Wunsch des Users soll ein
+              // Klick bei zu vielen Treffern nicht wirkungslos ins Leere
+              // laufen, sondern aktiv erklären, WARUM die Kartenansicht
+              // gerade nicht geht (ein deaktivierter Button mit reinem
+              // title-Tooltip wird auf Touch-Geräten ohnehin nie sichtbar).
               onClick={() => {
-                setHighlightedImageId(null);
-                setViewMode("map");
-                void runMapSearch(standort, locationQuery, tagsQuery, hashQuery, favoritesOnly);
+                if (isMapBlocked) {
+                  setIsMapBlockedDialogOpen(true);
+                  return;
+                }
+                if (needsMapWarning) {
+                  setIsMapWarningDialogOpen(true);
+                  return;
+                }
+                openMapView();
               }}
             >
               <Map className="size-3.5" />
@@ -820,7 +938,7 @@ export function ImagesPageClient({
           onToggleSelect={handleToggleSelect}
           onPreview={(row) => {
             setPreviewOpenedFromMap(false);
-            setPreviewId(row.id);
+            openPreview(row.id);
           }}
           onEdit={(row) => setEditId(row.id)}
           onDelete={setDeleteTarget}
@@ -892,8 +1010,8 @@ export function ImagesPageClient({
         onAddUserTag={(tag) => previewRow && handleAddUserTag(previewRow.id, tag)}
         onRemoveUserTag={(tag, addedBy) => previewRow && handleRemoveUserTag(previewRow.id, tag, addedBy)}
         onToggleFavorite={() => previewRow && handleToggleFavorite(previewRow.id)}
-        onPrev={!previewOpenedFromMap && previewHasPrev ? () => setPreviewId(rows[previewIndex - 1].id) : undefined}
-        onNext={!previewOpenedFromMap && previewHasNext ? () => setPreviewId(rows[previewIndex + 1].id) : undefined}
+        onPrev={!previewOpenedFromMap && previewHasPrev ? () => openPreview(rows[previewIndex - 1].id) : undefined}
+        onNext={!previewOpenedFromMap && previewHasNext ? () => openPreview(rows[previewIndex + 1].id) : undefined}
         dotColor={previewRow ? (dotColorById.get(previewRow.id) ?? FALLBACK_MARKER_COLOR) : FALLBACK_MARKER_COLOR}
         onLocateOnMap={handleLocateOnMap}
       />
@@ -902,6 +1020,55 @@ export function ImagesPageClient({
         onOpenChange={(open) => !open && setIsBulkDeleteOpen(false)}
         onDeleted={handleBulkDeleted}
       />
+      {/* Warnung vor dem Kartenwechsel bei vielen Markern (siehe
+          mapMarkerWarningThreshold in settings-registry.ts) — Wechsel
+          bleibt möglich, "Trotzdem wechseln" ruft openMapView() genauso
+          auf wie ein direkter Klick unterhalb der Warnschwelle. */}
+      <AlertDialog open={isMapWarningDialogOpen} onOpenChange={setIsMapWarningDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Viele Bilder auf der Karte</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dieser Filter zeigt {mapMarkerCount} Bilder mit Standort. Bei so vielen Markern kann die
+              Kartenansicht anfangen zu flackern. Trotzdem wechseln?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction data-testid="images-map-warning-continue" onClick={openMapView}>
+              Trotzdem wechseln
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Erklärender Hinweis statt eines stumm deaktivierten Buttons, wenn
+          die Obergrenze überschritten ist (siehe mapMarkerHardLimit in
+          settings-registry.ts) — kein "Trotzdem"-Ausweg, die Kartenansicht
+          bleibt hier bewusst gesperrt, nur der Grund wird erklärt. */}
+      <AlertDialog open={isMapBlockedDialogOpen} onOpenChange={setIsMapBlockedDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kartenansicht nicht möglich</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dieser Filter zeigt {mapMarkerCount} Bilder mit Standort — das liegt über der Obergrenze von{" "}
+              {mapMarkerHardLimit} für die Kartenansicht. Bei so vielen Markern würde die Karte kaum noch
+              nutzbar sein. Bitte den Filter weiter eingrenzen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* AlertDialogAction ist (anders als AlertDialogCancel) nur ein
+                normaler Button, kein Close-Primitive — schließt ohne
+                explizites onClick nicht von selbst (per Diagnose bestätigt:
+                der Button reagierte auf Klicks sichtbar gar nicht). */}
+            <AlertDialogAction
+              data-testid="images-map-blocked-acknowledge"
+              onClick={() => setIsMapBlockedDialogOpen(false)}
+            >
+              Verstanden
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {selectedIds.size > 0 && (
         <div

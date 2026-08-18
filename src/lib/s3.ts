@@ -1,6 +1,7 @@
 import {
   S3Client,
   HeadObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
@@ -67,6 +68,21 @@ export async function createPresignedPutUrl(key: string, contentMd5Base64: strin
     ContentMD5: contentMd5Base64,
   });
   return getSignedUrl(getS3Client(), command, { expiresIn: 300 });
+}
+
+/**
+ * Presigned GET für verkaufte Originaldateien (siehe Konzept-Plan Abschnitt
+ * 4) — im Gegensatz zu thumb.jpg/preview.jpg (öffentlich per Bucket-Policy,
+ * siehe thumbUrlFor/previewUrlFor in image-folder.ts) sind das gekaufte
+ * Dateien, deren Zugriff serverseitig an eine bezahlte Bestellung gebunden
+ * ist — die Autorisierung passiert daher beim AUSSTELLEN der URL (Aufrufer
+ * muss vorher Order-Ownership + status "paid" geprüft haben), nicht hier.
+ * Kurze Standard-Gültigkeit (5 Min, wie createPresignedPutUrl) genügt für
+ * einen Download-Start und begrenzt den Schaden bei einem geleakten Link.
+ */
+export async function createPresignedGetUrl(key: string, expiresInSeconds = 300): Promise<string> {
+  const command = new GetObjectCommand({ Bucket: getBucket(), Key: key });
+  return getSignedUrl(getS3Client(), command, { expiresIn: expiresInSeconds });
 }
 
 /** Paginiert automatisch — pro Bild-Ordner sind das ohnehin nur wenige Keys. */

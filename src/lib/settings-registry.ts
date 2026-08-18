@@ -102,6 +102,64 @@ export const GLOBAL_SETTINGS_REGISTRY: GlobalSettingDefinition[] = [
     type: "boolean",
     defaultValue: false,
   },
+  // Beide Werte steuern den "Karte"-Umschalter auf /images (siehe
+  // images-page-client.tsx) — ab der Warnschwelle bleibt der Wechsel
+  // möglich, zeigt aber vorher eine Bestätigung ("kann anfangen zu
+  // flackern"), ab der Obergrenze ist der Button komplett gesperrt. Reine
+  // Performance-/UX-Bremse (Google Maps flackert sichtbar bei sehr vielen
+  // gleichzeitigen Markern), keine Sicherheits-/Berechtigungsfrage.
+  {
+    key: "map_marker_warning_threshold",
+    label: "Karten-Marker-Warnschwelle",
+    description:
+      "Ab dieser Trefferzahl warnt die Kartenansicht vor Flackern, der Wechsel bleibt aber möglich.",
+    type: "number",
+    defaultValue: 1500,
+  },
+  {
+    key: "map_marker_hard_limit",
+    label: "Karten-Marker-Obergrenze",
+    description: "Ab dieser Trefferzahl ist der Wechsel zur Kartenansicht komplett gesperrt.",
+    type: "number",
+    defaultValue: 2000,
+  },
+  // Anonyme Registrierungs-Sperre auf /images (siehe anon-view-tracking.ts,
+  // recordAnonymousImageView in images/actions.ts, page.tsx) — nach so
+  // vielen geöffneten Vollbild-Previews innerhalb des Zeitfensters wird die
+  // Seite durch eine "Bitte registrieren"-Karte ersetzt. Bewusst eine
+  // weiche, Cookie-basierte Bremse (kein Sicherheitsmechanismus) — betrifft
+  // nur anonyme Besucher, eingeloggte User jeder Rolle sind nie betroffen.
+  {
+    key: "anon_image_view_limit",
+    label: "Anonyme Ansichten-Grenze",
+    description:
+      "Nach so vielen geöffneten Bildern innerhalb des Zeitfensters müssen sich anonyme Besucher registrieren.",
+    type: "number",
+    defaultValue: 25,
+  },
+  {
+    key: "anon_image_view_window_minutes",
+    label: "Anonyme Ansichten-Zeitfenster (Minuten)",
+    description: "Nach Ablauf dieser Zeit seit dem ersten gezählten Bild setzt sich die Grenze zurück.",
+    type: "number",
+    defaultValue: 30,
+  },
+  // Einzige, pauschale Versandkosten-Konfiguration für Druck-Bestellungen
+  // (siehe Konzept-Plan Abschnitt 8) — bewusst EIN Wert statt einer eigenen
+  // Tabelle: Drucke werden manuell verpackt/verschickt (kein Fulfillment-
+  // API mit echter Gewichts-/Tarifberechnung), eine Pauschale pro Bestellung
+  // ist der übliche Ansatz bei kleinvolumigem manuellem Versand. Wird in
+  // src/app/checkout/actions.ts gelesen und nur dann als Stripe-
+  // shipping_option angehängt, wenn die Bestellung mindestens einen
+  // Druck-Posten enthält (rein digitale Bestellungen bleiben versandkostenfrei).
+  {
+    key: "shop_print_shipping_cents",
+    label: "Versandpauschale Drucke (Cent)",
+    description:
+      "Einmalige Versandkosten pro Bestellung mit mindestens einem Druck-Posten, unabhängig von der Stückzahl.",
+    type: "number",
+    defaultValue: 590,
+  },
 ];
 
 export function findPersonalSettingDefinition(key: string): PersonalSettingDefinition | undefined {

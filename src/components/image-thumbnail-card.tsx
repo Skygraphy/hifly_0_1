@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImageMapDot } from "@/components/image-map-dot";
 import { CopyableId, FavoriteButton } from "@/components/image-preview-popup";
+import { AddToCartButton } from "@/components/add-to-cart-button";
 import { BUTTON_GLASS_CLASS, TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { canManageUserTag, type Role } from "@/lib/authorization";
 import { useFittingCount } from "@/lib/use-fitting-count";
@@ -550,6 +551,11 @@ export function ImageThumbnailCard({
           testId={`image-favorite-${row.id}`}
           loginLinkTestId={`image-favorite-login-link-${row.id}`}
         />
+        {/* Bestellen — dasselbe "immer sichtbar, kein Hover-Fade"-Prinzip wie
+            Favorisieren daneben: eine für jeden Betrachter jederzeit
+            greifbare Aktion. Führt auf die eigene Produktseite für dieses
+            Bild (siehe AddToCartButton), kein Popover mehr. */}
+        <AddToCartButton imageId={row.id} size="icon-xs" testId={`image-add-to-cart-${row.id}`} />
         <ImageMapDot className="size-6" color={dotColor} onClick={() => onLocateOnMap(row)} bordered={false} />
       </div>
 

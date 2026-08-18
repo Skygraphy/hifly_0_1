@@ -8,6 +8,7 @@ import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { ImageUploadManager } from "./image-upload-manager";
 
 export default async function ImageUploadPage() {
@@ -38,6 +39,7 @@ export default async function ImageUploadPage() {
         <div className="mt-6">
           <BrandMark />
         </div>
+        <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "Bilder hochladen" }]} className="mt-4" />
         <h1 className="mb-6 mt-4 flex items-center gap-2 text-2xl font-semibold">
           <UploadCloud className="size-6 text-primary" />
           Bilder hochladen

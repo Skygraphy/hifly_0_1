@@ -106,6 +106,90 @@
       "when": 1786084804158,
       "tag": "0014_wakeful_whistler",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786616620283,
+      "tag": "0015_previous_supreme_intelligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786619755344,
+      "tag": "0016_rename_quality_class_to_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786619882093,
+      "tag": "0017_rename_shop_categories_pkey_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786621854775,
+      "tag": "0018_add_shop_package_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786702972275,
+      "tag": "0019_add_shop_print_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786704504290,
+      "tag": "0020_add_shop_print_quality_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786716535002,
+      "tag": "0021_allow_multiple_print_qualities_per_format_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786725004372,
+      "tag": "0022_add_orders_and_discount_tiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786729395562,
+      "tag": "0023_orders_stripe_session_id_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786800712418,
+      "tag": "0024_outstanding_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786802463171,
+      "tag": "0025_cooing_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786955675947,
+      "tag": "0026_rename_shop_categories_to_shop_package_categories",
+      "breakpoints": true
     }
   ]
 }

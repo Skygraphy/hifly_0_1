@@ -1,13 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { and, asc, count, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { images, imageFavorites, type UserTagEntry } from "@/db/schema";
 import { canSeeHiddenImages, canEditImage, canDeleteImage, canManageUserTag } from "@/lib/authorization";
 import { thumbUrlFor, previewUrlFor } from "@/lib/image-folder";
 import { listObjectKeysUnderPrefix, deleteObjects } from "@/lib/s3";
+import { getGlobalSettings } from "@/lib/settings-service";
+import {
+  ANON_VIEW_COOKIE_NAME,
+  isOverLimit,
+  nextAnonViewState,
+  readAnonViewState,
+} from "@/lib/anon-view-tracking";
 
 const PAGE_SIZE = 60;
 
@@ -366,6 +374,31 @@ export async function searchImageLocations(input: SearchImagesInput): Promise<Im
   }));
 }
 
+/**
+ * Reine Trefferzahl für die Kartenansicht — exakt dieselben Bedingungen wie
+ * searchImageLocations (inkl. Koordinaten-Pflicht), aber ohne die Zeilen
+ * selbst zu laden. Für die Marker-Warn-/Sperrgrenze in
+ * images-page-client.tsx (siehe map_marker_warning_threshold/
+ * map_marker_hard_limit in settings-registry.ts) VOR dem eigentlichen
+ * Kartenwechsel benötigt — ein COUNT ist dafür erheblich günstiger, als die
+ * volle Liste zu laden und nur ihre Länge zu lesen.
+ */
+export async function countImageLocations(input: SearchImagesInput): Promise<number> {
+  const session = await auth();
+  const role = session?.user?.role;
+  const seesHiddenImages = canSeeHiddenImages(role);
+
+  const conditions = buildImageConditions(input, seesHiddenImages, session?.user?.id);
+  conditions.push(isNotNull(images.lat), isNotNull(images.lng));
+
+  const [row] = await db
+    .select({ count: count() })
+    .from(images)
+    .where(and(...conditions));
+
+  return row?.count ?? 0;
+}
+
 export interface RandomImageThumb {
   id: string;
   mainLocation: string | null;
@@ -680,4 +713,51 @@ export async function toggleFavorite(imageId: string): Promise<ToggleFavoriteRes
   await db.insert(imageFavorites).values({ userId, imageId });
   revalidatePath("/images");
   return { success: true, isFavorite: true };
+}
+
+export interface RecordAnonymousImageViewResult {
+  /** true, sobald die Grenze (anon_image_view_limit) im aktuellen Fenster
+   * erreicht ist — der Client löst darauf router.refresh() aus, images/
+   * page.tsx sperrt dann beim Re-Render sofort (siehe dortiger
+   * isOverLimit-Check), ohne dass der User manuell neu laden muss. */
+  blocked: boolean;
+}
+
+/**
+ * Zählt EIN geöffnetes Vollbild-Preview für die anonyme Registrierungs-
+ * Sperre (siehe anon-view-tracking.ts, GLOBAL_SETTINGS_REGISTRY:
+ * anon_image_view_limit/anon_image_view_window_minutes). No-op für
+ * eingeloggte Sessions — die Sperre betrifft ausschließlich anonyme
+ * Besucher, unabhängig von der Rolle ist ein eingeloggter User nie
+ * betroffen. Bewusst eine WEICHE, Cookie-basierte Bremse (kein
+ * Sicherheitsmechanismus, siehe Kommentar bei GLOBAL_SETTINGS_REGISTRY) —
+ * ein gelöschtes Cookie setzt den Zähler einfach zurück, das ist
+ * akzeptiert.
+ */
+export async function recordAnonymousImageView(): Promise<RecordAnonymousImageViewResult> {
+  const session = await auth();
+  if (session?.user) return { blocked: false };
+
+  const settings = await getGlobalSettings();
+  const limit = Number(settings.anon_image_view_limit) || 25;
+  const windowMinutes = Number(settings.anon_image_view_window_minutes) || 30;
+
+  const cookieStore = await cookies();
+  const currentState = readAnonViewState(cookieStore.get(ANON_VIEW_COOKIE_NAME)?.value);
+  const now = Date.now();
+  const nextState = nextAnonViewState(currentState, windowMinutes, now);
+
+  // maxAge bewusst großzügig (30 Tage) und unabhängig von
+  // anon_image_view_window_minutes — die eigentliche Fenster-Logik läuft
+  // rein über windowStart im Cookie-Inhalt (siehe isOverLimit), eine
+  // spätere Änderung der Einstellung soll kein bestehendes Cookie sofort
+  // ungültig machen.
+  cookieStore.set(ANON_VIEW_COOKIE_NAME, JSON.stringify(nextState), {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+    httpOnly: true,
+    sameSite: "lax",
+  });
+
+  return { blocked: isOverLimit(nextState, limit, windowMinutes, now) };
 }

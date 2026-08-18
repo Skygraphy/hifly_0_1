@@ -5,6 +5,7 @@ import { ShieldCheck, ShieldMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setUserAdminRole } from "./actions";
 import type { Role } from "@/lib/authorization";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function RoleActionButton({
   userId,
@@ -28,7 +29,7 @@ export function RoleActionButton({
         startTransition(async () => {
           const result = await setUserAdminRole(userId, desiredRole);
           if (!result.success) {
-            alert(result.error ?? "Aktion fehlgeschlagen.");
+            showAppAlert(result.error ?? "Aktion fehlgeschlagen.");
           }
         });
       }}

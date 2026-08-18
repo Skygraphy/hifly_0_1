@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -17,6 +18,7 @@ import {
   ChevronRight,
   Copy,
   Heart,
+  Loader2,
   MapPin,
   Pencil,
   Plus,
@@ -32,6 +34,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogPortal } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImageMapDot } from "@/components/image-map-dot";
+import { AddToCartButton } from "@/components/add-to-cart-button";
 import { canManageUserTag, type Role } from "@/lib/authorization";
 import { BUTTON_GLASS_CLASS, TAG_ACCENT_TEXT_CLASS, TAG_GLASS_CLASS } from "@/lib/badge-glass-style";
 import { useFittingCount } from "@/lib/use-fitting-count";
@@ -270,6 +273,14 @@ export function CopyableId({
       aria-label="ID kopieren"
       data-testid={testId}
       onClick={async (event) => {
+        // preventDefault zusätzlich zu stopPropagation: dieser Button sitzt
+        // inzwischen auch verschachtelt in einem <Link> (CartPageClient,
+        // OrdersListClient) — stopPropagation allein verhindert nur, dass
+        // Links eigener onClick-Handler (der die Client-Navigation auslöst)
+        // feuert, nicht aber die native Standard-Navigation des <a>-Tags.
+        // Ohne preventDefault würde ein Klick auf "ID kopieren" den Text
+        // zwar kopieren, aber trotzdem zur Bild-Shopseite wechseln.
+        event.preventDefault();
         event.stopPropagation();
         await navigator.clipboard.writeText(id);
         setCopied(true);
@@ -426,16 +437,40 @@ export function FavoriteButton({
  * einem Effekt zurückgesetzt — ein unconditional setState() am Anfang eines
  * Effekt-Bodys triggert unnötige Extra-Renders (react-hooks/set-state-in-effect)
  * und würde für einen Frame die falsche (alte) Deckelung zeigen.
+ *
+ * useLayoutEffect statt useEffect für die Neuberechnung: bei einem bereits
+ * im Browser-Cache liegenden Bild (z.B. Zurück-Blättern zu einem schon
+ * gesehenen Bild) ist img.complete sofort wahr, die richtige Deckelung
+ * also sofort berechenbar — mit useEffect (läuft NACH dem Browser-Paint)
+ * malte der Browser dazwischen kurz die lockere 85vh/85vw-CSS-Deckelung
+ * (kein maxSize gesetzt), bevor der Effekt auf die eigentlich richtige,
+ * engere Größe zurückschrumpfte. useLayoutEffect läuft synchron VOR dem
+ * Paint, der Browser zeigt im Cache-Fall dadurch nie den Zwischenzustand.
+ *
+ * Bei einem tatsächlich noch ladenden (nicht gecachten) Bild reicht das
+ * allein aber NICHT — dort bleibt für die reale Ladezeit unvermeidbar eine
+ * Lücke, in der die neue Auflösung noch nicht bekannt ist. Ein `maxSize:
+ * null` in dieser Lücke (frühere Version) ließ die AUSSERE Box (die sich
+ * an der `current`-Bildgröße orientiert, nicht an der weiterhin sichtbaren,
+ * absolut positionierten `previous`) auf die lockere 85vh/85vw-Deckelung
+ * aufblähen, WÄHREND das alte Bild darin noch normal sichtbar blieb —
+ * dadurch wuchs der sichtbare Rahmen sofort bei jedem Klick auf ein noch
+ * nicht gecachtes Bild spürbar auf, bevor er auf die richtige Größe
+ * zurückschrumpfte (vom User bestätigt: "flackert noch immer auf", auch
+ * nach dem useLayoutEffect-Fix). Der alte, bereits bekannte maxSize-Wert
+ * bleibt deshalb als Platzhalter bestehen, bis die neue Größe feststeht —
+ * die Box behält währenddessen ihre vorherige, bereits stimmige Größe statt
+ * auf die lockere CSS-Deckelung zu springen.
  */
 function useNoUpscaleStyle(src: string): [React.RefObject<HTMLImageElement | null>, CSSProperties | undefined] {
   const [state, setState] = useState<{ src: string; maxSize: { width: number; height: number } | null }>({
     src,
     maxSize: null,
   });
-  if (state.src !== src) setState({ src, maxSize: null });
+  if (state.src !== src) setState({ src, maxSize: state.maxSize });
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const img = imgRef.current;
     if (!img) return;
     const apply = () => {
@@ -483,8 +518,34 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
   const [previousRef, previousStyle] = useNoUpscaleStyle(previous?.previewUrl ?? "");
   const [currentRef, currentStyle] = useNoUpscaleStyle(current.previewUrl);
 
+  // Echtes ALLERERSTES Laden dieser PreviewImage-Instanz (kein previous zum
+  // Zwischenhalten, currentStyle noch unbekannt): useNoUpscaleStyle hat hier
+  // (anders als beim Blättern, siehe dortiger Kommentar) keinen vorherigen
+  // maxSize-Wert, auf den sie sich als Platzhalter stützen könnte — die
+  // ALLERERSTE Größe ist per Definition noch nicht bekannt. Ohne eigene
+  // Behandlung bliebe die Box in dieser Lücke auf der losen 85vh/85vw-
+  // CSS-Deckelung, bis das Bild fertig geladen ist und auf die richtige,
+  // meist deutlich kleinere Größe zusammenschrumpft — vom User beim Öffnen
+  // per Kartenklick gemeldet ("Preview kurz vergrößert dargestellt, erst
+  // dann reduziert sich die Ansicht"). PreviewImage mountet bei JEDEM
+  // Öffnen aus geschlossenem Zustand neu (siehe "Bewusst KEIN key={row.id}"-
+  // Kommentar am Aufrufer — das <img> darin bleibt zwar über Zeilenwechsel
+  // hinweg gemountet, die gesamte PreviewImage-Instanz aber nicht über
+  // Schließen/Wiederöffnen), betrifft also jedes Öffnen, nicht nur den
+  // allerersten Aufruf der App. Statt der aufgeblähten Box zeigt dieser
+  // Zweig einen Spinner in einer bescheidenen, festen Box (dieselbe Idee
+  // wie beim Lade-Spinner der Karten-Hover-Vorschau) — das <img> lädt
+  // weiterhin unsichtbar im Hintergrund, bis currentStyle bekannt ist.
+  const isFirstLoadPending = !previous && !currentStyle;
+
   return (
-    <div className="relative flex max-h-[85vh] max-w-[85vw] items-center justify-center">
+    <div
+      className={cn(
+        "relative flex items-center justify-center",
+        isFirstLoadPending ? "size-72" : "max-h-[85vh] max-w-[85vw]"
+      )}
+    >
+      {isFirstLoadPending && <Loader2 className="size-8 animate-spin text-white/70" />}
       {previous && (
         // eslint-disable-next-line @next/next/no-img-element -- fertige
         // Vollbild-Datei aus S3, next/image bringt hier keine Optimierung.
@@ -505,6 +566,7 @@ function PreviewImage({ row }: { row: ImageSearchRow }) {
         alt={current.mainLocation ?? ""}
         className={cn(
           "relative max-h-[85vh] max-w-[85vw] object-contain",
+          isFirstLoadPending && "invisible absolute",
           previous && !isEntering ? "opacity-0" : "transition-opacity duration-300 opacity-100"
         )}
         {...NO_CASUAL_DOWNLOAD_PROPS}
@@ -828,6 +890,10 @@ export function ImagePreviewPopup({
                     testId={`image-preview-favorite-${row.id}`}
                     loginLinkTestId={`image-preview-favorite-login-link-${row.id}`}
                   />
+                  {/* Bestellen — dasselbe "immer sichtbar, kein Hover-Fade"-
+                      Prinzip wie Favorisieren daneben: eine für jeden
+                      Betrachter jederzeit greifbare Aktion. */}
+                  <AddToCartButton imageId={row.id} testId={`image-preview-add-to-cart-${row.id}`} />
                   {/* bordered={false}: der dezente weiße Rand (Standard in
                       diesem Popup, siehe ImageMapDot) störte hier laut User —
                       genau wie auf der Kachel (dort ohnehin schon ohne Rand).

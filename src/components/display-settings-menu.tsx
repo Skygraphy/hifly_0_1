@@ -22,6 +22,7 @@ import {
   type ThemePreference,
 } from "@/lib/apply-theme";
 import type { AccountMenuUser } from "./account-menu";
+import { showAppAlert } from "@/lib/app-alert";
 
 const SYNC_MARKER_KEY = "hifly_guest_settings_synced";
 
@@ -105,7 +106,7 @@ export function DisplaySettingsMenu({ user }: { user: AccountMenuUser | null }) 
     if (user) {
       startTransition(async () => {
         const result = await setPersonalSetting("theme", value);
-        if (!result.success) alert(result.error ?? "Änderung fehlgeschlagen.");
+        if (!result.success) showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
       });
     } else {
       setGuestSetting("theme", value);

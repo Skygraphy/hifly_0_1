@@ -29,7 +29,10 @@ const NOT_VISIBLE_CLASSNAME = "text-destructive/70";
  * Klick, damit das Häkchen weder die Item-eigene Navigation/Auswahl auslöst
  * noch (als Nebeneffekt davon) das Menü schließt; toggelt ausschließlich das
  * eigene published-Flag der Zeile. accent-color übernimmt die Markenfarbe
- * statt der browsereigenen Standardfarbe im angehakten Zustand.
+ * statt der browsereigenen Standardfarbe im angehakten Zustand. Bewusst
+ * Checkbox statt Schieberegler (auf Wunsch des Users) — in der dichten
+ * hierarchischen Standort-/Regionsauswahl passt die kompaktere Checkbox
+ * besser als in einer einzelnen Einstellungszeile.
  */
 function PublishCheckbox({
   checked,

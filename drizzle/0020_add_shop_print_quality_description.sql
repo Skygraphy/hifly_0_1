@@ -1,0 +1,1 @@
+ALTER TABLE "shop_print_qualities" ADD COLUMN "description" text;

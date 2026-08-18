@@ -27,6 +27,7 @@ import { ADMINISTRATIVE_LEVEL_LABELS } from "@/lib/administrative-units";
 import { createAdministrativeUnit, updateAdministrativeUnit, deleteAdministrativeUnit } from "./actions";
 import type { AdministrativeUnit } from "@/lib/administrative-units";
 import type { FormState } from "./types";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function AdministrativeUnitFormDialog({
   formState,
@@ -168,7 +169,7 @@ export function DeleteUnitDialog({
               startTransition(async () => {
                 const result = await deleteAdministrativeUnit(unit.id);
                 if (!result.success) {
-                  alert(result.error ?? "Löschen fehlgeschlagen.");
+                  showAppAlert(result.error ?? "Löschen fehlgeschlagen.");
                   return;
                 }
                 onDeleted(levelIndex);

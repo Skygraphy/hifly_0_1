@@ -1,0 +1,4 @@
+DROP INDEX "shop_location_print_format_assignments_unit_idx";--> statement-breakpoint
+DROP INDEX "shop_location_print_format_assignments_region_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "shop_location_print_format_assignments_unit_idx" ON "shop_location_print_format_assignments" USING btree ("administrative_unit_id","print_format_id","print_quality_id") WHERE "shop_location_print_format_assignments"."region_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "shop_location_print_format_assignments_region_idx" ON "shop_location_print_format_assignments" USING btree ("region_id","print_format_id","print_quality_id") WHERE "shop_location_print_format_assignments"."administrative_unit_id" IS NULL;

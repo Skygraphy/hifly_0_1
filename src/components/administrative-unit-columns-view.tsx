@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, Check } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -8,6 +9,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent } from "@/components/ui/popover";
+import { useIsTruncated } from "@/lib/use-is-truncated";
 import { cn } from "@/lib/utils";
 import {
   ADMINISTRATIVE_LEVELS,
@@ -20,12 +23,51 @@ import type { Region } from "@/lib/regions";
 // Native <input type="checkbox">: accent-color übernimmt die Markenfarbe
 // statt der browsereigenen (meist blauen) Standardfarbe im angehakten
 // Zustand — funktionsübergreifend unterstützt, ohne einen eigenen
-// Checkbox-Baustein bauen zu müssen.
+// Checkbox-Baustein bauen zu müssen. Bewusst Checkbox statt Schieberegler
+// (auf Wunsch des Users) — in der dichten hierarchischen Standort-/
+// Regionsauswahl passt die kompaktere Checkbox besser.
 const PUBLISH_CHECKBOX_CLASSNAME = "size-3.5 shrink-0 cursor-pointer accent-primary";
 // Öffentlich nicht (mehr) erreichbare Zeilen bewusst nicht nur gedämpft
 // (text-muted-foreground), sondern leicht ins Rötliche — liest sich auf
 // einen Blick als "ungültig/nicht sichtbar" statt nur als "inaktiv".
 const NOT_VISIBLE_CLASSNAME = "text-destructive/70";
+
+/** Bei tatsächlicher Ellipsen-Kürzung (siehe useIsTruncated) wird der Name
+ * zum Hover-Tooltip mit dem vollen Namen als Inhalt — derselbe gestylte
+ * Look wie TruncatedTooltipText in image-preview-popup.tsx/
+ * image-thumbnail-card.tsx, hier aber OHNE PopoverTrigger: die umschließende
+ * Zeile (Button/DropdownMenuItem) trägt bereits ihr eigenes onClick zum
+ * Auswählen, und PopoverTrigger würde auf demselben Element zusätzlich sein
+ * eigenes Klick-Toggle auslösen — das öffnet(e) das Popup dauerhaft im
+ * "klick-offen"-Modus, der (anders als der Hover-Modus) nicht mehr bei
+ * bloßem Mouseleave schließt, sondern nur bei Klick außerhalb. Stattdessen:
+ * eigener isHovered-State per onMouseEnter/onMouseLeave auf einem einfachen
+ * <span> (kein Trigger-Verhalten, also auch kein Klick-Konflikt), Popover
+ * vollständig kontrolliert über open={isTruncated && isHovered}, Positionierung
+ * über anchor={ref} statt über einen Trigger. pointer-events-none auf dem
+ * Popup verhindert zusätzlich, dass die (die nächste Zeile teils
+ * überlappende) Box selbst zum Hover-Ziel wird.
+ */
+function TruncatedName({ text, testId }: { text: string; testId: string }) {
+  const [ref, isTruncated] = useIsTruncated<HTMLSpanElement>();
+  const [isHovered, setIsHovered] = useState(false);
+  return (
+    <Popover open={isTruncated && isHovered}>
+      <span
+        ref={ref}
+        data-testid={testId}
+        className="block min-w-0 truncate"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {text}
+      </span>
+      <PopoverContent anchor={ref} className="max-w-64 p-2 text-xs pointer-events-none">
+        {text}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function AdministrativeUnitColumnsView({
   pathUnits,
@@ -135,8 +177,18 @@ export function AdministrativeUnitColumnsView({
       ? rawColumnCount - 1
       : rawColumnCount;
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sobald eine tiefere Ebene erreicht wird und die neue Spalte nicht mehr
+  // in die sichtbare Breite passt, automatisch ganz an den rechten Rand
+  // scrollen, statt die neueste Spalte abgeschnitten hängen zu lassen.
+  useEffect(() => {
+    scrollContainerRef.current?.scrollTo({ left: scrollContainerRef.current.scrollWidth, behavior: "smooth" });
+  }, [columnCount]);
+
   return (
     <div
+      ref={scrollContainerRef}
       className={cn(
         // Farbe/Breite kommen global aus globals.css — hier nur die Höhe
         // dieses speziell dünnen, horizontalen Balkens override't.
@@ -183,34 +235,14 @@ export function AdministrativeUnitColumnsView({
                       type="button"
                       data-testid={`unit-column-select-${item.id}`}
                       className={cn(
-                        "flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+                        "flex min-w-0 flex-1 items-center rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
                         visibleUnitIds && !visibleUnitIds.has(item.id) && NOT_VISIBLE_CLASSNAME
                       )}
                       onClick={() => onSelect(index, item.id)}
                     >
-                      {item.name}
+                      <TruncatedName text={item.name} testId={`unit-column-name-${item.id}`} />
                     </button>
                     {isUnitSelected && <Check className="size-3.5 shrink-0" />}
-                    {onToggleUnitPublished && item.level !== "federal" && (
-                      <input
-                        type="checkbox"
-                        aria-label="Veröffentlicht"
-                        data-testid={`unit-column-published-${item.id}`}
-                        className={PUBLISH_CHECKBOX_CLASSNAME}
-                        checked={item.published}
-                        onChange={(event) => onToggleUnitPublished(item, event.target.checked)}
-                      />
-                    )}
-                    {onToggleUnitGranted && (
-                      <input
-                        type="checkbox"
-                        aria-label="Freigegeben"
-                        data-testid={`unit-column-granted-${item.id}`}
-                        className={PUBLISH_CHECKBOX_CLASSNAME}
-                        checked={grantedUnitIds?.has(item.id) ?? false}
-                        onChange={(event) => onToggleUnitGranted(item, event.target.checked)}
-                      />
-                    )}
                     {(onEdit || onDelete) && (
                       <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                         {onEdit && (
@@ -239,6 +271,26 @@ export function AdministrativeUnitColumnsView({
                         )}
                       </div>
                     )}
+                    {onToggleUnitPublished && item.level !== "federal" && (
+                      <input
+                        type="checkbox"
+                        aria-label="Veröffentlicht"
+                        data-testid={`unit-column-published-${item.id}`}
+                        className={cn(PUBLISH_CHECKBOX_CLASSNAME, "ml-auto")}
+                        checked={item.published}
+                        onChange={(event) => onToggleUnitPublished(item, event.target.checked)}
+                      />
+                    )}
+                    {onToggleUnitGranted && (
+                      <input
+                        type="checkbox"
+                        aria-label="Freigegeben"
+                        data-testid={`unit-column-granted-${item.id}`}
+                        className={cn(PUBLISH_CHECKBOX_CLASSNAME, !onToggleUnitPublished && "ml-auto")}
+                        checked={grantedUnitIds?.has(item.id) ?? false}
+                        onChange={(event) => onToggleUnitGranted(item, event.target.checked)}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -260,44 +312,24 @@ export function AdministrativeUnitColumnsView({
                             type="button"
                             data-testid={`region-option-${region.id}`}
                             className={cn(
-                              "flex-1 truncate rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+                              "flex min-w-0 flex-1 items-center rounded px-1.5 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
                               visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
                             )}
                             onClick={() => onSelectRegion(region.id)}
                           >
-                            {region.name}
+                            <TruncatedName text={region.name} testId={`region-name-${region.id}`} />
                           </button>
                         ) : (
                           <span
                             className={cn(
-                              "flex-1 truncate px-1.5 py-1 cursor-default select-none",
+                              "flex min-w-0 flex-1 items-center px-1.5 py-1 cursor-default select-none",
                               visibleRegionIds && !visibleRegionIds.has(region.id) && NOT_VISIBLE_CLASSNAME
                             )}
                           >
-                            {region.name}
+                            <TruncatedName text={region.name} testId={`region-name-${region.id}`} />
                           </span>
                         )}
                         {region.id === selectedRegionId && <Check className="size-3.5 shrink-0" />}
-                        {onToggleRegionPublished && (
-                          <input
-                            type="checkbox"
-                            aria-label="Veröffentlicht"
-                            data-testid={`region-published-${region.id}`}
-                            className={PUBLISH_CHECKBOX_CLASSNAME}
-                            checked={region.published}
-                            onChange={(event) => onToggleRegionPublished(region, event.target.checked)}
-                          />
-                        )}
-                        {onToggleRegionGranted && (
-                          <input
-                            type="checkbox"
-                            aria-label="Freigegeben"
-                            data-testid={`region-granted-${region.id}`}
-                            className={PUBLISH_CHECKBOX_CLASSNAME}
-                            checked={grantedRegionIds?.has(region.id) ?? false}
-                            onChange={(event) => onToggleRegionGranted(region, event.target.checked)}
-                          />
-                        )}
                         {(onEditRegion || onDeleteRegion) && (
                           <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                             {onEditRegion && (
@@ -325,6 +357,26 @@ export function AdministrativeUnitColumnsView({
                               </Button>
                             )}
                           </div>
+                        )}
+                        {onToggleRegionPublished && (
+                          <input
+                            type="checkbox"
+                            aria-label="Veröffentlicht"
+                            data-testid={`region-published-${region.id}`}
+                            className={cn(PUBLISH_CHECKBOX_CLASSNAME, "ml-auto")}
+                            checked={region.published}
+                            onChange={(event) => onToggleRegionPublished(region, event.target.checked)}
+                          />
+                        )}
+                        {onToggleRegionGranted && (
+                          <input
+                            type="checkbox"
+                            aria-label="Freigegeben"
+                            data-testid={`region-granted-${region.id}`}
+                            className={cn(PUBLISH_CHECKBOX_CLASSNAME, !onToggleRegionPublished && "ml-auto")}
+                            checked={grantedRegionIds?.has(region.id) ?? false}
+                            onChange={(event) => onToggleRegionGranted(region, event.target.checked)}
+                          />
                         )}
                       </div>
                     ))}

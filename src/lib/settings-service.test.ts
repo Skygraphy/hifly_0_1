@@ -85,7 +85,14 @@ describe("getGlobalSettings", () => {
 
   it("liefert Registry-Standardwerte, wenn keine Zeilen existieren", async () => {
     const result = await getGlobalSettings();
-    expect(result).toEqual({ maintenance_mode: false });
+    expect(result).toEqual({
+      maintenance_mode: false,
+      map_marker_warning_threshold: 1500,
+      map_marker_hard_limit: 2000,
+      anon_image_view_limit: 25,
+      anon_image_view_window_minutes: 30,
+      shop_print_shipping_cents: 590,
+    });
   });
 
   it("überschreibt den Standardwert mit einer vorhandenen app_settings-Zeile", async () => {

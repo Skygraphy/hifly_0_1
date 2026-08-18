@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Users, Settings, MapPinned, UploadCloud } from "lucide-react";
+import { ShieldCheck, Users, Settings, MapPinned, UploadCloud, ShoppingBag, Truck, ArrowRight } from "lucide-react";
 import { auth } from "@/auth";
 import {
   canAccessAdminArea,
@@ -8,17 +8,17 @@ import {
   canManageAppSettings,
   canManageUsers,
   canManageRegions,
+  canManageShop,
+  canManageOrders,
   canUploadImages,
 } from "@/lib/authorization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
 import { RoleBadge } from "@/components/role-badge";
 import { BrandMark } from "@/components/brand-mark";
 import { AccountMenuSlot } from "@/components/account-menu-slot";
 import { AccountMenu } from "@/components/account-menu";
 import { DisplaySettingsMenu } from "@/components/display-settings-menu";
 import { BackLink } from "@/components/back-link";
-import { cn } from "@/lib/utils";
 
 export default async function AdminPage() {
   const session = await auth();
@@ -31,8 +31,55 @@ export default async function AdminPage() {
     redirect("/?error=forbidden");
   }
 
+  const role = session.user.role;
+
+  const sections = [
+    canUploadImages(role) && {
+      href: "/admin/images/upload",
+      icon: UploadCloud,
+      title: "Bilder hochladen",
+      description: "Neue Fotos hochladen und Standorten zuordnen.",
+      testId: "upload",
+    },
+    canManageAppSettings(role) && {
+      href: "/admin/settings",
+      icon: Settings,
+      title: "App-Einstellungen",
+      description: "Globale Einstellungen und Berechtigungen für die gesamte App verwalten.",
+      testId: "settings",
+    },
+    (canManageAdministrativeUnits(role) || canManageRegions(role)) && {
+      href: "/admin/administrative-units",
+      icon: MapPinned,
+      title: "Standorte & Regionen",
+      description: "Standorte, Regionen und die Verwaltungsstruktur pflegen.",
+      testId: "administrative-units",
+    },
+    canManageShop(role) && {
+      href: "/admin/shop",
+      icon: ShoppingBag,
+      title: "Shop verwalten",
+      description: "Pakete, Drucke und Rabattstufen für den Shop konfigurieren.",
+      testId: "shop",
+    },
+    canManageOrders(role) && {
+      href: "/admin/orders",
+      icon: Truck,
+      title: "Druck-Fulfillment",
+      description: "Bestellungen mit physischen Drucken bearbeiten und den Versand verwalten.",
+      testId: "orders",
+    },
+    canManageUsers(role) && {
+      href: "/admin/users",
+      icon: Users,
+      title: "User-Rechte verwalten",
+      description: "Rollen und Standort-Freigaben für Nutzer verwalten.",
+      testId: "users",
+    },
+  ].filter((section) => section !== false);
+
   return (
-    <main className="relative min-h-screen bg-background">
+    <main className="relative min-h-screen bg-background p-8">
       <BackLink href="/" label="Zurück zur Startseite" />
       <AccountMenuSlot>
         <div className="flex items-center gap-2">
@@ -40,59 +87,38 @@ export default async function AdminPage() {
           <AccountMenu user={session.user} />
         </div>
       </AccountMenuSlot>
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <BrandMark />
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <ShieldCheck className="size-6" />
-              Admin-Bereich
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>{session.user.email}</span>
-              <RoleBadge role={session.user.role} />
-            </div>
-
-            {canUploadImages(session.user.role) && (
-              <Link
-                href="/admin/images/upload"
-                className={cn(buttonVariants({ variant: "outline" }))}
-              >
-                <UploadCloud className="size-4" />
-                Bilder hochladen
-              </Link>
-            )}
-            {canManageAppSettings(session.user.role) && (
-              <Link
-                href="/admin/settings"
-                className={cn(buttonVariants({ variant: "outline" }))}
-              >
-                <Settings className="size-4" />
-                App-Einstellungen
-              </Link>
-            )}
-            {(canManageAdministrativeUnits(session.user.role) || canManageRegions(session.user.role)) && (
-              <Link
-                href="/admin/administrative-units"
-                className={cn(buttonVariants({ variant: "outline" }))}
-              >
-                <MapPinned className="size-4" />
-                Standorte &amp; Regionen
-              </Link>
-            )}
-            {canManageUsers(session.user.role) && (
-              <Link
-                href="/admin/users"
-                className={cn(buttonVariants({ variant: "outline" }))}
-              >
-                <Users className="size-4" />
-                User-Rechte verwalten
-              </Link>
-            )}
-          </CardContent>
-        </Card>
+      <div className="mx-auto max-w-6xl">
+        <div className="mt-6">
+          <BrandMark />
+        </div>
+        <h1 className="mb-2 mt-4 flex items-center gap-2 text-2xl font-semibold">
+          <ShieldCheck className="size-6 text-primary" />
+          Admin-Bereich
+        </h1>
+        <p className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
+          {session.user.email}
+          <RoleBadge role={role} />
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {sections.map((section) => (
+            <Link key={section.href} href={section.href} data-testid={`admin-section-${section.testId}`}>
+              <Card className="h-full transition-colors hover:bg-muted/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between gap-2 text-xl">
+                    <span className="flex items-center gap-2">
+                      <section.icon className="size-5 text-primary" />
+                      {section.title}
+                    </span>
+                    <ArrowRight className="size-4 text-muted-foreground" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{section.description}</p>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
     </main>
   );

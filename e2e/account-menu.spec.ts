@@ -45,7 +45,7 @@ test("super_admin kann über das Menü direkt zu /admin/users navigieren", async
   await page.getByTestId("account-menu-users-link").click();
 
   await expect(page).toHaveURL(/\/admin\/users/);
-  await expect(page.getByText("User-Rechte verwalten")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "User-Rechte verwalten" })).toBeVisible();
 });
 
 test("super_admin kann über das Menü direkt zu /admin/administrative-units navigieren (Standorte & Regionen)", async ({

@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { Ban, CircleCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setUserBlockedStatus } from "./actions";
+import { showAppAlert } from "@/lib/app-alert";
 
 export function BlockActionButton({
   userId,
@@ -26,7 +27,7 @@ export function BlockActionButton({
         startTransition(async () => {
           const result = await setUserBlockedStatus(userId, !blocked);
           if (!result.success) {
-            alert(result.error ?? "Aktion fehlgeschlagen.");
+            showAppAlert(result.error ?? "Aktion fehlgeschlagen.");
           }
         });
       }}

@@ -1,0 +1,1 @@
+ALTER TABLE "shop_packages" ADD COLUMN "description" text;

@@ -20,6 +20,7 @@ import { setAdministrativeUnitPublished } from "./actions";
 import { RegionFormDialog, DeleteRegionDialog, CreateColumnRegionDialog } from "./region-dialogs";
 import { setRegionPublished } from "./region-actions";
 import type { FormState, ColumnRegionsTarget, EditRegionTarget } from "./types";
+import { showAppAlert } from "@/lib/app-alert";
 
 function firstLeafPath(startUnit: AdministrativeUnit, byParent: Map<string | null, AdministrativeUnit[]>): string[] {
   const path: string[] = [];
@@ -126,7 +127,7 @@ export function AdministrativeUnitsManager({
     startTogglePublished(async () => {
       const result = await setAdministrativeUnitPublished(unit.id, published);
       if (!result.success) {
-        alert(result.error ?? "Änderung fehlgeschlagen.");
+        showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
         return;
       }
       router.refresh();
@@ -137,7 +138,7 @@ export function AdministrativeUnitsManager({
     startTogglePublished(async () => {
       const result = await setRegionPublished(region.id, published);
       if (!result.success) {
-        alert(result.error ?? "Änderung fehlgeschlagen.");
+        showAppAlert(result.error ?? "Änderung fehlgeschlagen.");
         return;
       }
       router.refresh();

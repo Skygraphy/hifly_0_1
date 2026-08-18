@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { regions, regionAdministrativeUnits } from "@/db/schema";
 import { canManageRegions } from "@/lib/authorization";
+import { getPostgresErrorCode } from "@/lib/db-errors";
 import type { AdministrativeLevel } from "@/lib/administrative-units";
 
 export interface RegionActionResult {
@@ -89,7 +90,7 @@ export async function createRegion(
     revalidatePath("/admin/administrative-units");
     return { success: true, id };
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_UNIQUE_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_UNIQUE_VIOLATION) {
       return { success: false, error: DUPLICATE_NAME_ERROR };
     }
     throw err;
@@ -123,7 +124,7 @@ export async function updateRegion(id: string, input: RegionInput): Promise<Regi
     revalidatePath("/admin/administrative-units");
     return { success: true, id };
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === POSTGRES_UNIQUE_VIOLATION) {
+    if (getPostgresErrorCode(err) === POSTGRES_UNIQUE_VIOLATION) {
       return { success: false, error: DUPLICATE_NAME_ERROR };
     }
     throw err;

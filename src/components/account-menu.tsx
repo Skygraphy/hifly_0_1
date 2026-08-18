@@ -3,7 +3,21 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogIn, LogOut, ShieldCheck, Users, Camera, Settings, Home, MapPinned, UploadCloud } from "lucide-react";
+import {
+  LogIn,
+  LogOut,
+  ShieldCheck,
+  Users,
+  Camera,
+  Settings,
+  Home,
+  MapPinned,
+  UploadCloud,
+  ShoppingBag,
+  ShoppingCart,
+  PackageOpen,
+  Truck,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -21,6 +35,8 @@ import {
   canAccessAdminArea,
   canManageAdministrativeUnits,
   canManageAppSettings,
+  canManageShop,
+  canManageOrders,
   canManageUsers,
   canManageRegions,
   canRunOpsTools,
@@ -30,6 +46,7 @@ import {
 import { signOutAction } from "./account-menu-actions";
 import { runFlowWalkthroughAction } from "./flow-report-actions";
 import { buildFlowWalkthroughLoadingPage } from "./flow-walkthrough-loading-page";
+import { showAppAlert } from "@/lib/app-alert";
 
 export interface AccountMenuUser {
   /** Optional, weil bislang nicht überall gebraucht (AccountMenu selbst
@@ -64,7 +81,7 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
     if (isWalkthroughPending) return;
     const reportWindow = window.open("", "_blank");
     if (!reportWindow) {
-      alert(
+      showAppAlert(
         "Das Report-Fenster wurde vom Browser blockiert. Bitte Pop-ups für diese Seite erlauben und erneut versuchen."
       );
       return;
@@ -87,7 +104,7 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
         }
       } else {
         reportWindow.close();
-        alert(result.error ?? "Walkthrough fehlgeschlagen.");
+        showAppAlert(result.error ?? "Walkthrough fehlgeschlagen.");
       }
     });
   }
@@ -134,6 +151,20 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
             <Settings className="size-4" />
             Konto-Einstellungen
           </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="account-menu-cart-link"
+            onClick={() => router.push("/cart")}
+          >
+            <ShoppingCart className="size-4" />
+            Warenkorb
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="account-menu-orders-link"
+            onClick={() => router.push("/orders")}
+          >
+            <PackageOpen className="size-4" />
+            Meine Bestellungen
+          </DropdownMenuItem>
         </DropdownMenuGroup>
 
         {(canAccessAdminArea(user.role) ||
@@ -141,6 +172,8 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
           canManageAppSettings(user.role) ||
           canManageAdministrativeUnits(user.role) ||
           canManageRegions(user.role) ||
+          canManageShop(user.role) ||
+          canManageOrders(user.role) ||
           canManageUsers(user.role)) && (
           <>
             <DropdownMenuSeparator />
@@ -182,6 +215,26 @@ export function AccountMenu({ user }: { user: AccountMenuUser | null }) {
                 >
                   <MapPinned className="size-4" />
                   Standorte &amp; Regionen
+                </DropdownMenuItem>
+              )}
+              {canManageShop(user.role) && (
+                <DropdownMenuItem
+                  inset
+                  data-testid="account-menu-shop-link"
+                  onClick={() => router.push("/admin/shop")}
+                >
+                  <ShoppingBag className="size-4" />
+                  Shop verwalten
+                </DropdownMenuItem>
+              )}
+              {canManageOrders(user.role) && (
+                <DropdownMenuItem
+                  inset
+                  data-testid="account-menu-orders-admin-link"
+                  onClick={() => router.push("/admin/orders")}
+                >
+                  <Truck className="size-4" />
+                  Druck-Fulfillment
                 </DropdownMenuItem>
               )}
               {canManageUsers(user.role) && (
