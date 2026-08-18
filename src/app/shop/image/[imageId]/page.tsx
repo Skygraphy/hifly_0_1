@@ -37,9 +37,54 @@ function decodeImageId(raw: string): string {
   }
 }
 
-export default async function ShopImagePage({ params }: { params: Promise<{ imageId: string }> }) {
+const STATIC_IMAGE_ORIGINS = {
+  images: { backHref: "/images", backLabel: "Zurück zu den Bildern", crumbLabel: "Bilder", navActive: "shop" },
+  orders: {
+    backHref: "/orders",
+    backLabel: "Zurück zu Meine Bestellungen",
+    crumbLabel: "Meine Bestellungen",
+    navActive: "orders",
+  },
+  cart: { backHref: "/cart", backLabel: "Zurück zum Warenkorb", crumbLabel: "Warenkorb", navActive: "cart" },
+} as const satisfies Record<
+  string,
+  { backHref: string; backLabel: string; crumbLabel: string; navActive: "shop" | "orders" | "cart" }
+>;
+
+/**
+ * Wie CHECKOUT_ORIGINS/resolveCheckoutOrigin (checkout/[orderId]/page.tsx)
+ * — `from` bleibt reiner Lookup-Schlüssel gegen eine feste Liste, kein
+ * Passthrough. Einzige Ausnahme: die Checkout-Herkunft braucht zusätzlich
+ * die konkrete `orderId` (aus `order`), da /checkout/[orderId] anders als
+ * /orders oder /cart keine feste, listenartige URL hat — dieselbe
+ * Vertrauensstufe wie jeder andere Order-Id-Routenparameter (Eigentümer-
+ * Check passiert ohnehin serverseitig auf der Zielseite selbst).
+ */
+function resolveImageOrigin(from: string | undefined, orderId: string | undefined) {
+  if (from === "checkout" && orderId) {
+    return {
+      backHref: `/checkout/${orderId}`,
+      backLabel: "Zurück zur Bezahlung",
+      crumbLabel: "Bezahlen",
+      navActive: undefined,
+    };
+  }
+  return from !== undefined && from in STATIC_IMAGE_ORIGINS
+    ? STATIC_IMAGE_ORIGINS[from as keyof typeof STATIC_IMAGE_ORIGINS]
+    : STATIC_IMAGE_ORIGINS.images; // unverändertes bisheriges Verhalten als Default
+}
+
+export default async function ShopImagePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ imageId: string }>;
+  searchParams: Promise<{ from?: string; order?: string }>;
+}) {
   const { imageId: rawImageId } = await params;
   const imageId = decodeImageId(rawImageId);
+  const { from, order } = await searchParams;
+  const origin = resolveImageOrigin(from, order);
   const [session, imageRow, products] = await Promise.all([
     auth(),
     db
@@ -117,7 +162,7 @@ export default async function ShopImagePage({ params }: { params: Promise<{ imag
 
   return (
     <main className="relative min-h-screen bg-background p-8">
-      <BackLink href="/images" label="Zurück zu den Bildern" />
+      <BackLink href={origin.backHref} label={origin.backLabel} />
       <AccountMenuSlot>
         <div className="flex items-center gap-2">
           <DisplaySettingsMenu user={session?.user ?? null} />
@@ -127,12 +172,12 @@ export default async function ShopImagePage({ params }: { params: Promise<{ imag
       <div className="mx-auto max-w-6xl">
         <div className="mt-6 flex flex-wrap items-center justify-between gap-y-2">
           <BrandMark />
-          <CustomerNav active="shop" />
+          <CustomerNav active={origin.navActive} />
         </div>
         <Breadcrumb
           items={[
             { label: "Start", href: "/" },
-            { label: "Bilder", href: "/images" },
+            { label: origin.crumbLabel, href: origin.backHref },
             { label: imageRow.mainLocation ?? "Bild" },
           ]}
           className="mt-4"

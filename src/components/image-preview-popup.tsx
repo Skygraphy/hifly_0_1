@@ -235,17 +235,33 @@ function FittingBadges<T>({
  * Preview"), auf expliziten Folgewunsch des Users dann auf "xs" (h-6)
  * umgestellt, um auf gleicher Höhe wie die dortigen icon-xs-Nachbarn
  * (Bearbeiten/Löschen) zu sitzen.
+ *
+ * `onOpenPreview` optional (nur von der Kachel gesetzt): ein Klick auf den
+ * ID-TEXT öffnet dann zusätzlich das Vollbild-Popup, ein Klick auf das
+ * Kopier-Icon daneben bleibt unverändert reines Kopieren. Beides zusammen
+ * auf einen einzigen Klick zu legen (erst kopieren, dann Popup öffnen) hätte
+ * die "kopiert"-Bestätigung (Check-Icon) unsichtbar gemacht, noch bevor sie
+ * zu sehen war — das Vollbild deckt die Kachel sofort ab, und das Popup hat
+ * eine eigene, unabhängige CopyableId-Instanz ohne den `copied`-State. Zwei
+ * getrennte Klickziele in einem einzigen <button> gehen nicht (kein
+ * Button-in-Button in validem HTML) — die äußere Hülle ist deshalb ein
+ * <span> mit der bisherigen Button-Optik, innen zwei eigene <button>s statt
+ * einem. Ohne `onOpenPreview` (alle anderen Aufrufer: Checkout/Bestellungen/
+ * Warenkorb/Preview selbst/Shop-Bilddetail) kopiert ein Klick auf den Text
+ * wie bisher ebenfalls.
  */
 export function CopyableId({
   id,
   className,
   testId = "image-preview-copy-id",
   size = "sm",
+  onOpenPreview,
 }: {
   id: string;
   className?: string;
   testId?: string;
   size?: "sm" | "xs";
+  onOpenPreview?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,41 +272,54 @@ export function CopyableId({
     };
   }, []);
 
+  // preventDefault zusätzlich zu stopPropagation: dieser Button sitzt
+  // inzwischen auch verschachtelt in einem <Link> (CartPageClient,
+  // OrdersListClient) — stopPropagation allein verhindert nur, dass Links
+  // eigener onClick-Handler (der die Client-Navigation auslöst) feuert,
+  // nicht aber die native Standard-Navigation des <a>-Tags. Ohne
+  // preventDefault würde ein Klick auf "ID kopieren" den Text zwar
+  // kopieren, aber trotzdem zur Bild-Shopseite wechseln.
+  async function copyId(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    await navigator.clipboard.writeText(id);
+    setCopied(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 1500);
+  }
+
   return (
-    <Button
-      type="button"
-      size={size}
-      variant="secondary"
-      // size="sm" (Preview) ist h-7 — dieselbe Höhe wie die icon-sm-Buttons
-      // daneben (Bearbeiten/Löschen/Schließen), auf Wunsch des Users
-      // vereinheitlicht (vorher h-9, an das Adress-Badge oben links
-      // angeglichen — das saß dadurch aber nicht mehr auf gleicher Höhe wie
-      // seine direkten Nachbarn in derselben Button-Gruppe). size="xs"
-      // (Kachel) entsprechend h-6, dieselbe Höhe wie dortige icon-xs-
-      // Nachbarn. BUTTON_GLASS_CLASS statt fester Marken-Farbe — siehe
-      // Begründung dort/bei den Nachbar-Buttons oben rechts.
-      className={cn("gap-1.5", BUTTON_GLASS_CLASS, "text-primary", className)}
-      aria-label="ID kopieren"
+    // size="sm" (Preview) ist h-7 — dieselbe Höhe wie die icon-sm-Buttons
+    // daneben (Bearbeiten/Löschen/Schließen), auf Wunsch des Users
+    // vereinheitlicht (vorher h-9, an das Adress-Badge oben links
+    // angeglichen — das saß dadurch aber nicht mehr auf gleicher Höhe wie
+    // seine direkten Nachbarn in derselben Button-Gruppe). size="xs"
+    // (Kachel) entsprechend h-6, dieselbe Höhe wie dortige icon-xs-
+    // Nachbarn. BUTTON_GLASS_CLASS statt fester Marken-Farbe — siehe
+    // Begründung dort/bei den Nachbar-Buttons oben rechts.
+    <span
+      className={cn(buttonVariants({ size, variant: "secondary" }), "gap-1.5", BUTTON_GLASS_CLASS, "text-primary", className)}
       data-testid={testId}
-      onClick={async (event) => {
-        // preventDefault zusätzlich zu stopPropagation: dieser Button sitzt
-        // inzwischen auch verschachtelt in einem <Link> (CartPageClient,
-        // OrdersListClient) — stopPropagation allein verhindert nur, dass
-        // Links eigener onClick-Handler (der die Client-Navigation auslöst)
-        // feuert, nicht aber die native Standard-Navigation des <a>-Tags.
-        // Ohne preventDefault würde ein Klick auf "ID kopieren" den Text
-        // zwar kopieren, aber trotzdem zur Bild-Shopseite wechseln.
-        event.preventDefault();
-        event.stopPropagation();
-        await navigator.clipboard.writeText(id);
-        setCopied(true);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => setCopied(false), 1500);
-      }}
     >
-      ID {id}
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </Button>
+      <button
+        type="button"
+        aria-label={onOpenPreview ? "Vollbild öffnen" : "ID kopieren"}
+        onClick={
+          onOpenPreview
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenPreview();
+              }
+            : copyId
+        }
+      >
+        ID {id}
+      </button>
+      <button type="button" aria-label="ID kopieren" data-testid={`${testId}-copy`} onClick={copyId}>
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </button>
+    </span>
   );
 }
 

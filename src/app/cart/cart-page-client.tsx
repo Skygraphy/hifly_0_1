@@ -97,7 +97,7 @@ export function CartPageClient({
           return (
             <div key={key} data-testid={`cart-item-${key}`} className="flex items-center gap-3 rounded-lg border px-3 py-2">
               <Link
-                href={`/shop/image/${item.imageId}`}
+                href={`/shop/image/${item.imageId}?from=cart`}
                 // Hover-Feedback als Hintergrund statt Text-Unterstrich —
                 // dieselbe Konvention wie bei anderen klickbaren
                 // Bild-Zeilen (siehe shop-image-override-manager.tsx/

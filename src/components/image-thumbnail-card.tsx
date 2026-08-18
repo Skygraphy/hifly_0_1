@@ -496,7 +496,13 @@ export function ImageThumbnailCard({
                 in image-preview-popup.tsx. font-semibold statt dem
                 Button-Standard font-medium: "etwas markanter" auf Wunsch
                 des Users. */}
-            <CopyableId id={row.hash} size="xs" className="font-semibold" testId={`image-copy-id-${row.id}`} />
+            <CopyableId
+              id={row.hash}
+              size="xs"
+              className="font-semibold"
+              testId={`image-copy-id-${row.id}`}
+              onOpenPreview={() => onPreview(row)}
+            />
             {canEdit && (
               <Button
                 type="button"

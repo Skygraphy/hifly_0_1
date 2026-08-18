@@ -107,7 +107,7 @@ function LineItemRow({ item, orderStatus }: { item: OrderLineItemRow; orderStatu
           shop-image-override-manager.tsx/print-image-override-manager.tsx:
           hover:bg-muted, ebenso CartPageClient). */}
       <Link
-        href={`/shop/image/${item.imageId}`}
+        href={`/shop/image/${item.imageId}?from=orders`}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-md transition-colors hover:bg-muted"
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- fertige

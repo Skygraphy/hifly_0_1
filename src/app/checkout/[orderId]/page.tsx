@@ -183,7 +183,7 @@ export default async function CheckoutPage({
                   {/* Hover-Feedback als Hintergrund statt Text-Unterstrich —
                       dieselbe Konvention wie in CartPageClient/OrdersListClient. */}
                   <Link
-                    href={`/shop/image/${item.imageId}`}
+                    href={`/shop/image/${item.imageId}?from=checkout&order=${orderRow.id}`}
                     className="flex min-w-0 flex-1 items-center gap-3 rounded-md transition-colors hover:bg-muted"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- fertige
